@@ -33,7 +33,7 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
                 let (key, new_tail) = decode_bencoded_value(tail);
                 let (val, new_tail) = decode_bencoded_value(new_tail);
                 tail = new_tail;
-                values.insert(key.to_string(), val);
+                values.insert(key.as_str().unwrap().to_string(), val);
             }
             (values.into(), &tail[1..])
         },
