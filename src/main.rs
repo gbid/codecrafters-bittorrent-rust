@@ -8,24 +8,32 @@ use std::env;
 fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
     // If encoded_value starts with a digit, it's a number
     //
-    match encoded_value.chars().next().unwrap() {
+    dbg!(&encoded_value);
+    let (head, mut tail) = encoded_value.split_at(1);
+    let head: char = head.chars().next().expect("split_at(1) did not panic so the left part has to be nonempty");
+    let (val, new_tail) = match head {
         'i' => {
             // let content = &encoded_value[1..].chars().take_while(|&ch| ch != 'e').collect::<String>();
-            let end_index: usize = encoded_value[1..].find('e').unwrap() + 1;
-            let value = encoded_value[1..end_index].parse::<i64>().unwrap();
-            dbg!(&encoded_value[end_index + 1 ..]);
-            (value.into(), &encoded_value[end_index + 1 ..])
+            let end_index: usize = tail.find('e').unwrap();
+            let value = tail[..end_index].parse::<i64>().unwrap();
+            (value.into(), &tail[end_index + 1 ..])
         },
         'l' => {
             let mut values = Vec::new();
-            let mut tail = &encoded_value[1..];
-            dbg!(&tail);
-            while tail.chars().next().unwrap() != 'e' {
-                let (val, tail2) = decode_bencoded_value(tail);
-                dbg!(&val);
-                dbg!(&tail2);
-                tail = tail2;
+            while !tail.starts_with('e') {
+                let (val, new_tail) = decode_bencoded_value(tail);
+                tail = new_tail;
                 values.push(val);
+            }
+            (values.into(), &tail[1..])
+        },
+        'd' => {
+            let mut values = serde_json::Map::new();
+            while !tail.starts_with('e') {
+                let (key, new_tail) = decode_bencoded_value(tail);
+                let (val, new_tail) = decode_bencoded_value(new_tail);
+                tail = new_tail;
+                values.insert(key.to_string(), val);
             }
             (values.into(), &tail[1..])
         },
@@ -37,7 +45,9 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
             (value.into(), &tail[value_length ..])
         },
         _ =>  panic!("Unhandled encoded value: {}", encoded_value)
-    }
+    };
+    dbg!(&val);
+    (val, new_tail)
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
