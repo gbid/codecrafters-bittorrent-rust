@@ -7,21 +7,36 @@ use std::env;
 #[allow(dead_code)]
 fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
     // If encoded_value starts with a digit, it's a number
-    if encoded_value.chars().next().unwrap().is_digit(10) {
-        // Example: "5:hello" -> "hello"
-        let colon_index = encoded_value.find(':').unwrap();
-        let number_string = &encoded_value[..colon_index];
-        let number = number_string.parse::<i64>().unwrap();
-        let string = &encoded_value[colon_index + 1..colon_index + 1 + number as usize];
-        return serde_json::Value::String(string.to_string());
-    } else if encoded_value.chars().next().unwrap() == 'i' {
-        let num_bytes = encoded_value.len();
-        let integer_string = &encoded_value[1..num_bytes-1];
-        let integer = integer_string.parse::<i64>().unwrap();
-        return serde_json::Value::from(integer);
-    } else {
-        panic!("Unhandled encoded value: {}", encoded_value)
+    
+    if let Some((len, rest)) = encoded_value.split_once(':') {
+        if let Ok(len) = len.parse::<usize>() {
+            return rest[0..len].to_string().into();
+        }
     }
+    else if let Some(middle) = encoded_value.strip_prefix('i') {
+        if let Some(middle) = middle.strip_suffix('e') {
+            if let Ok(integer) = middle.parse::<i64>() {
+                return integer.into();
+            }
+        }
+    }
+    panic!("Unhandled encoded value: {}", encoded_value);
+
+    //if encoded_value.chars().next().unwrap().is_digit(10) {
+    //    // Example: "5:hello" -> "hello"
+    //    let colon_index = encoded_value.find(':').unwrap();
+    //    let number_string = &encoded_value[..colon_index];
+    //    let number = number_string.parse::<i64>().unwrap();
+    //    let string = &encoded_value[colon_index + 1..colon_index + 1 + number as usize];
+    //    return serde_json::Value::String(string.to_string());
+    //} else if encoded_value.chars().next().unwrap() == 'i' {
+    //    let num_bytes = encoded_value.len();
+    //    let integer_string = &encoded_value[1..num_bytes-1];
+    //    let integer = integer_string.parse::<i64>().unwrap();
+    //    return serde_json::Value::Number(integer.into());
+    //} else {
+    //    panic!("Unhandled encoded value: {}", encoded_value)
+    //}
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
