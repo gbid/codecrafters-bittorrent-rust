@@ -65,7 +65,8 @@ fn main() {
             let torrent_filename = &args[2];
             let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
             let (metainfo, _encoded_tail) = decode_bencoded_value(content);
-            println!("{}", metainfo["info"]["length"]);
+            println!("Tracker URL: {}", metainfo["announce"]);
+            println!("Length: {}", metainfo["info"]["length"]);
         },
         _ => println!("unknown command: {}", args[1])
     }
