@@ -1,4 +1,3 @@
-#![feature(slice_split_once)]
 use serde_json;
 use std::{ env, fs, str };
 
@@ -39,7 +38,9 @@ fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
         },
         b'0' ..= b'9' => {
             // Example: "5:hello" -> "hello"
-            let (head, tail) = encoded_value.split_once(|&x| x == b':').unwrap();
+            let colon_index = encoded_value.iter().position(|&x| x == b':').unwrap();
+            let (head, tail) = encoded_value.split_at(colon_index);
+            let tail = &tail[1..];
             let value_length = str::from_utf8(&head).unwrap().parse::<usize>().unwrap();
             let value = String::from_utf8_lossy(&tail[.. value_length]);
             (value.into(), &tail[value_length ..])
