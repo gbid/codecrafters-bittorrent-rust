@@ -1,8 +1,31 @@
 use serde_json;
+use serde_bencode;
 use std::{ env, fs, str };
+use sha1::{Sha1};
+use serde::{ Serialize, Deserialize };
+use serde_with::{ Bytes, serde_as };
 
 // Available if you need it!
 // use serde_bencode
+
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Torrent {
+    announce: String,
+    info: Info,
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
+struct Info {
+    length: usize,
+    name: String,
+    #[serde(rename = "piece length")]
+    piece_length: usize,
+    #[serde_as(as = "Bytes")]
+    pieces: Vec<u8>,
+}
+
 
 #[allow(dead_code)]
 fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
@@ -64,9 +87,15 @@ fn main() {
         "info" => {
             let torrent_filename = &args[2];
             let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
-            let (metainfo, _encoded_tail) = decode_bencoded_value(content);
-            println!("Tracker URL: {}", metainfo["announce"].as_str().unwrap());
-            println!("Length: {}", metainfo["info"]["length"]);
+            let torrent_result: Result<Torrent, _> = serde_bencode::from_bytes(content);
+            if let Ok(torrent) = torrent_result {
+                //let mut hasher = Sha1::new();
+                println!("Tracker URL: {}", torrent.announce);
+                println!("Length: {}", torrent.info.length);
+            } else {
+                dbg!(&torrent_result);
+            }
+
         },
         _ => println!("unknown command: {}", args[1])
     }
