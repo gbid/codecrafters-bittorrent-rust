@@ -5,6 +5,8 @@ use sha1::{ Sha1, Digest };
 use serde::{ Serialize, Deserialize };
 use serde_with::{ Bytes, serde_as };
 use hex;
+use urlencoding;
+use std::collections::HashMap;
 
 // Available if you need it!
 // use serde_bencode
@@ -25,6 +27,12 @@ struct Info {
     piece_length: usize,
     #[serde_as(as = "Bytes")]
     pieces: Vec<u8>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TrackerResponse {
+    interval: i64,
+    peers: String,
 }
 
 
@@ -80,6 +88,36 @@ fn hash_bytes(piece: &[u8]) -> String {
     hasher.update(piece);
     hex::encode(hasher.finalize())
 }
+
+fn get_tracker(torrent: Torrent) -> TrackerResponse {
+    let info_bytes = serde_bencode::to_bytes(&torrent.info).unwrap();
+    let mut hasher = Sha1::new();
+    hasher.update(&info_bytes);
+    let info_hash = hasher.finalize();
+    dbg!(hash_bytes(&info_bytes));
+    dbg!(hex::encode(&info_hash));
+    let info_hash_encoded = urlencoding::encode_binary(&info_hash);
+    dbg!(&info_hash_encoded);
+    let info_length: String = torrent.info.length.to_string();
+    //let info_hash_borrowed: &str = &info_hash;
+    let params: HashMap<&str, &str> = vec![
+        ("info_hash", &*info_hash_encoded),
+        ("peer_id", "00112233445566778899"),
+        ("port", "6881"),
+        ("uploaded", "0"),
+        ("downloaded", "0"),
+        ("left", &info_length),
+        ("compact", "1"),
+    ].into_iter().collect();
+    let client = reqwest::blocking::Client::new();
+    let response = client.get(torrent.announce)
+        .query(&params)
+        .send()
+        .unwrap();
+    let response_body = response.text().unwrap();
+    dbg!(&response_body);
+    serde_json::from_str(&response_body).unwrap()
+}
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -108,6 +146,13 @@ fn main() {
                 dbg!(&torrent_result);
             }
 
+        },
+        "peers" => {
+            let torrent_filename = &args[2];
+            let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
+            let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
+            let tracker_response = get_tracker(torrent);
+            println!("{:?}", tracker_response);
         },
         _ => println!("unknown command: {}", args[1])
     }
