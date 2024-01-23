@@ -75,6 +75,11 @@ fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
     (val, new_tail)
 }
 
+fn hash_bytes(piece: &[u8]) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(piece);
+    hex::encode(hasher.finalize())
+}
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -93,10 +98,12 @@ fn main() {
                 println!("Tracker URL: {}", torrent.announce);
                 println!("Length: {}", torrent.info.length);
                 let info_bytes = serde_bencode::to_bytes(&torrent.info).unwrap();
-                let mut hasher = Sha1::new();
-                hasher.update(info_bytes);
-                let info_hashed = hasher.finalize();
-                println!("Info Hash: {}", hex::encode(info_hashed));
+                println!("Info Hash: {}", hash_bytes(&info_bytes));
+                println!("Piece Length: {}", torrent.info.piece_length);
+                println!("Piece Hashes:");
+                for piece in torrent.info.pieces.chunks(20) {
+                    println!("{}", hex::encode(piece));
+                }
             } else {
                 dbg!(&torrent_result);
             }
