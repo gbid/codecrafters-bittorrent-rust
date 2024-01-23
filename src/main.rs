@@ -1,9 +1,10 @@
 use serde_json;
 use serde_bencode;
 use std::{ env, fs, str };
-use sha1::{Sha1};
+use sha1::{ Sha1, Digest };
 use serde::{ Serialize, Deserialize };
 use serde_with::{ Bytes, serde_as };
+use hex;
 
 // Available if you need it!
 // use serde_bencode
@@ -89,9 +90,13 @@ fn main() {
             let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
             let torrent_result: Result<Torrent, _> = serde_bencode::from_bytes(content);
             if let Ok(torrent) = torrent_result {
-                //let mut hasher = Sha1::new();
                 println!("Tracker URL: {}", torrent.announce);
                 println!("Length: {}", torrent.info.length);
+                let info_bytes = serde_bencode::to_bytes(&torrent.info).unwrap();
+                let mut hasher = Sha1::new();
+                hasher.update(info_bytes);
+                let info_hashed = hasher.finalize();
+                println!("Info Hash: {}", hex::encode(info_hashed));
             } else {
                 dbg!(&torrent_result);
             }
