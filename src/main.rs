@@ -6,7 +6,6 @@ use serde::{ Serialize, Deserialize };
 use serde_with::{ Bytes, serde_as };
 use hex;
 use urlencoding;
-use std::collections::HashMap;
 
 // Available if you need it!
 // use serde_bencode
@@ -29,10 +28,16 @@ struct Info {
     pieces: Vec<u8>,
 }
 
+#[serde_as]
 #[derive(Deserialize, Debug)]
 struct TrackerResponse {
     interval: i64,
-    peers: String,
+    #[serde(rename = "min interval")]
+    min_interval: i64,
+    #[serde_as(as = "Bytes")]
+    peers: Vec<u8>,
+    complete: i64,
+    incomplete: i64,
 }
 
 
@@ -96,27 +101,30 @@ fn get_tracker(torrent: Torrent) -> TrackerResponse {
     let info_hash = hasher.finalize();
     dbg!(hash_bytes(&info_bytes));
     dbg!(hex::encode(&info_hash));
-    let info_hash_encoded = urlencoding::encode_binary(&info_hash);
+    let info_hash_encoded = urlencoding::encode_binary(&info_hash); // Custom encoding
     dbg!(&info_hash_encoded);
-    let info_length: String = torrent.info.length.to_string();
-    //let info_hash_borrowed: &str = &info_hash;
-    let params: HashMap<&str, &str> = vec![
-        ("info_hash", &*info_hash_encoded),
-        ("peer_id", "00112233445566778899"),
-        ("port", "6881"),
-        ("uploaded", "0"),
-        ("downloaded", "0"),
-        ("left", &info_length),
-        ("compact", "1"),
-    ].into_iter().collect();
-    let client = reqwest::blocking::Client::new();
-    let response = client.get(torrent.announce)
-        .query(&params)
+    let peer_id = "00112233445566778899";
+    let port = "6881";
+    let uploaded = "0";
+    let downloaded = "0";
+    let left = torrent.info.length.to_string();
+    let compact = "1";
+
+    let query_string = format!(
+        "?info_hash={}&peer_id={}&port={}&uploaded={}&downloaded={}&left={}&compact={}",
+        info_hash_encoded, peer_id, port, uploaded, downloaded, left, compact
+    );
+
+    let full_url = format!("{}{}", torrent.announce, query_string);
+    let response = reqwest::blocking::Client::new()
+        .get(&full_url)
         .send()
         .unwrap();
-    let response_body = response.text().unwrap();
+
+    let response_body = response.bytes().unwrap();
     dbg!(&response_body);
-    serde_json::from_str(&response_body).unwrap()
+    serde_bencode::from_bytes(&response_body).unwrap()
+
 }
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
