@@ -1,6 +1,6 @@
 use serde_json;
 use serde_bencode;
-use std::{ env, fs, str };
+use std::{ env, fs, str, net::Ipv4Addr };
 use sha1::{ Sha1, Digest };
 use serde::{ Serialize, Deserialize };
 use serde_with::{ Bytes, serde_as };
@@ -30,14 +30,51 @@ struct Info {
 
 #[serde_as]
 #[derive(Deserialize, Debug)]
-struct TrackerResponse {
+struct IntermediateTrackerResponse {
     interval: i64,
-    #[serde(rename = "min interval")]
-    min_interval: i64,
+    //#[serde(rename = "min interval")]
+    //min_interval: i64,
     #[serde_as(as = "Bytes")]
     peers: Vec<u8>,
-    complete: i64,
-    incomplete: i64,
+    //complete: i64,
+    //incomplete: i64,
+}
+
+#[derive(Debug)]
+struct TrackerResponse {
+    interval: i64,
+    peers: Vec<Peer>,
+}
+
+impl TrackerResponse {
+    fn from_intermediate(intermediate: IntermediateTrackerResponse) -> Self {
+        let peers: Vec<Peer> = intermediate.peers.chunks(6).map(|chunk| {
+            let arr: [u8; 6] = chunk.try_into().expect("Chunk must have length 6");
+            Peer::from_bytes(&arr)
+        }).collect();
+        TrackerResponse {
+            interval: intermediate.interval,
+            peers,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Peer {
+    ip: Ipv4Addr,
+    port: u16,
+}
+
+impl Peer {
+    fn from_bytes(raw: &[u8; 6]) -> Self {
+        let port_bytes = &raw[4..6];
+        let port_byte_array: [u8; 2] = port_bytes.try_into().expect("slice with incorrect length");
+        let port = u16::from_be_bytes(port_byte_array);
+        Peer {
+            ip: Ipv4Addr::new(raw[0], raw[1], raw[2], raw[3]),
+            port,
+        }
+    }
 }
 
 
@@ -94,7 +131,7 @@ fn hash_bytes(piece: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn get_tracker(torrent: Torrent) -> TrackerResponse {
+fn get_tracker(torrent: &Torrent) -> TrackerResponse {
     let info_bytes = serde_bencode::to_bytes(&torrent.info).unwrap();
     let mut hasher = Sha1::new();
     hasher.update(&info_bytes);
@@ -123,7 +160,10 @@ fn get_tracker(torrent: Torrent) -> TrackerResponse {
 
     let response_body = response.bytes().unwrap();
     dbg!(&response_body);
-    serde_bencode::from_bytes(&response_body).unwrap()
+    let intermediate_tracker_response: IntermediateTrackerResponse = serde_bencode::from_bytes(&response_body).unwrap();
+    let tracker_response = TrackerResponse::from_intermediate(intermediate_tracker_response);
+    dbg!(&tracker_response);
+    tracker_response
 
 }
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -159,8 +199,10 @@ fn main() {
             let torrent_filename = &args[2];
             let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
             let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
-            let tracker_response = get_tracker(torrent);
-            println!("{:?}", tracker_response);
+            let tracker_response = get_tracker(&torrent);
+            for peer in tracker_response.peers {
+                println!("{}:{}", peer.ip, peer.port);
+            }
         },
         _ => println!("unknown command: {}", args[1])
     }
