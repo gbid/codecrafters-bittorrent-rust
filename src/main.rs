@@ -1,6 +1,8 @@
 use serde_json;
 use serde_bencode;
-use std::{ env, fs, str, net::Ipv4Addr };
+use std::{ env, fs, str};
+use std::net::{ Ipv4Addr, TcpStream };
+use std::io::{ Write, Read };
 use sha1::{ Sha1, Digest };
 use serde::{ Serialize, Deserialize };
 use serde_with::{ Bytes, serde_as };
@@ -131,15 +133,17 @@ fn hash_bytes(piece: &[u8]) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn get_tracker(torrent: &Torrent) -> TrackerResponse {
+fn get_info_hash(torrent: &Torrent) -> [u8; 20] {
     let info_bytes = serde_bencode::to_bytes(&torrent.info).unwrap();
     let mut hasher = Sha1::new();
     hasher.update(&info_bytes);
     let info_hash = hasher.finalize();
-    dbg!(hash_bytes(&info_bytes));
-    dbg!(hex::encode(&info_hash));
+    info_hash.into()
+}
+
+fn get_tracker(torrent: &Torrent) -> TrackerResponse {
+    let info_hash = get_info_hash(torrent);
     let info_hash_encoded = urlencoding::encode_binary(&info_hash); // Custom encoding
-    dbg!(&info_hash_encoded);
     let peer_id = "00112233445566778899";
     let port = "6881";
     let uploaded = "0";
@@ -202,6 +206,42 @@ fn main() {
             let tracker_response = get_tracker(&torrent);
             for peer in tracker_response.peers {
                 println!("{}:{}", peer.ip, peer.port);
+            }
+        },
+        "handshake" => {
+            let torrent_filename = &args[2];
+            let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
+            let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
+            let peer = &args[3];
+            //let (ip, port)  = peer.split_once(":").unwrap();
+            let mut stream = TcpStream::connect(peer).unwrap();
+            let protocol_string_length: &[u8; 1] = &[19; 1];
+            let protocol_string: &[u8; 19] = "BitTorrent protocol"
+                .as_bytes()
+                .try_into()
+                .expect("Failed to convert a fixed-size byte array");
+            let reserved: &[u8; 8] = &[0; 8];
+            let infohash: &[u8; 20] = &get_info_hash(&torrent);
+            let peer_id: &[u8; 20] = "00112233445566778899"
+                .as_bytes()
+                .try_into()
+                .expect("Failed to convert a fixed-size byte array");
+            let mut handshake_request: Vec<u8> = Vec::with_capacity(68);
+            handshake_request.extend_from_slice(protocol_string_length);
+            handshake_request.extend_from_slice(protocol_string);
+            handshake_request.extend_from_slice(reserved);
+            handshake_request.extend_from_slice(infohash);
+            handshake_request.extend_from_slice(peer_id);
+            stream.write(&handshake_request).unwrap();
+            let mut handshake_response = [0; 68];
+            let result = stream.read(&mut handshake_response);
+            if let Ok(68) = result {
+                let response_peer_id: [u8; 20] = handshake_response[48..68]
+                    .try_into()
+                    .expect("Failed to convert a fixed-size byte array");
+                println!("Peer ID: {}", hex::encode(&response_peer_id));
+            } else {
+                dbg!(&result);
             }
         },
         _ => println!("unknown command: {}", args[1])
