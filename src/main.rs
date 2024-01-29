@@ -212,14 +212,18 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
     let peer = get_tracker(torrent).peers[1];
     dbg!(&peer);
     let mut stream = TcpStream::connect(&peer).unwrap();
-    let total_number_of_pieces: u32 = torrent.info.length.div_ceil(torrent.info.piece_length);
+    // div_ceil not supported by Rust version of codecrafters.io:
+    // let total_number_of_pieces: u32 = torrent.info.length.div_ceil(torrent.info.piece_length);
+    let total_number_of_pieces: u32 = (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
     let this_pieces_size = if piece_index == total_number_of_pieces - 1 {
         torrent.info.length % torrent.info.piece_length
     } else {
         torrent.info.piece_length
     };
-    let block_size = BLOCK_SIZE.try_into().unwrap();
-    let number_of_blocks = this_pieces_size.div_ceil(block_size);
+    let block_size: u32 = BLOCK_SIZE.try_into().unwrap();
+    // div_ceil not supported by Rust version of codecrafters.io:
+    // let number_of_blocks = this_pieces_size.div_ceil(block_size);
+    let number_of_blocks: u32 = (this_pieces_size + block_size - 1) / block_size;
     dbg!(this_pieces_size);
     dbg!(number_of_blocks);
     loop {
