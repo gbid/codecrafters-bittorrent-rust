@@ -24,10 +24,10 @@ struct Torrent {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Info {
-    length: usize,
+    length: u32,
     name: String,
     #[serde(rename = "piece length")]
-    piece_length: usize,
+    piece_length: u32,
     #[serde_as(as = "Bytes")]
     pieces: Vec<u8>,
 }
@@ -203,15 +203,25 @@ enum DownloadPieceState {
     Bitfield,
     Interested,
     Unchoke,
-    Request(Vec<[u8; BLOCK_SIZE]>),
+    Request,
 }
 
-fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<[u8; BLOCK_SIZE]> {
+fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
     dbg!(torrent);
     let mut state = DownloadPieceState::Handshake;
     let peer = get_tracker(torrent).peers[1];
     dbg!(&peer);
     let mut stream = TcpStream::connect(&peer).unwrap();
+    let total_number_of_pieces: u32 = torrent.info.length.div_ceil(torrent.info.piece_length);
+    let this_pieces_size = if piece_index == total_number_of_pieces - 1 {
+        torrent.info.length % torrent.info.piece_length
+    } else {
+        torrent.info.piece_length
+    };
+    let block_size = BLOCK_SIZE.try_into().unwrap();
+    let number_of_blocks = this_pieces_size.div_ceil(block_size);
+    dbg!(this_pieces_size);
+    dbg!(number_of_blocks);
     loop {
         dbg!(&state);
         match state {
@@ -242,9 +252,7 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<[u8; BLOCK_SIZE]> 
                 dbg!(&msg);
                 match msg {
                     PeerMessage::Unchoke => {
-                        let number_of_blocks = torrent.info.piece_length / BLOCK_SIZE;
-                        let empty_blocks = Vec::with_capacity(number_of_blocks);
-                        state = DownloadPieceState::Request(empty_blocks);
+                        state = DownloadPieceState::Request;
                     },
                     _ => {
                         panic!("Expected Bitfield");
@@ -252,14 +260,21 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<[u8; BLOCK_SIZE]> 
                 };
                 // TODO: validate pieces based in sha1 hash of torrent.info.pieces
             },
-            DownloadPieceState::Request(mut blocks) => {
-                dbg!(BLOCK_SIZE);
-                for i in 0..blocks.capacity() {
+            DownloadPieceState::Request => {
+                dbg!(block_size);
+                let mut piece: Vec<u8> = Vec::with_capacity(torrent.info.length.try_into().unwrap());
+                for i in 0..number_of_blocks {
                     dbg!(i);
+                    let this_blocks_size: u32 = if i == number_of_blocks - 1 {
+                        (this_pieces_size % block_size).try_into().unwrap()
+                    } else {
+                        u32::try_from(block_size).unwrap()
+                    };
+                    dbg!(this_blocks_size);
                     let request_payload = RequestPayload {
                         index: piece_index,
-                        begin: u32::try_from(i*BLOCK_SIZE).unwrap(),
-                        length: u32::try_from(BLOCK_SIZE).unwrap(),
+                        begin: i*block_size,
+                        length: this_blocks_size,
                     };
                     dbg!(&request_payload);
                     let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
@@ -276,14 +291,14 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<[u8; BLOCK_SIZE]> 
                             block,
                         }) => {
                             // TODO: verify index, begin
-                            blocks.push(block.try_into().unwrap());
+                            piece.extend_from_slice(&block);
                         },
                         _ => {
                             panic!("Expected PeerMessage::Piece, got: {:?}", response_msg);
                         },
                     };
                 };
-                return blocks;
+                return piece;
             },
         }
     }
@@ -511,11 +526,9 @@ fn main() {
             let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
             let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
             let piece_index = u32::from_str(&args[5]).unwrap();
-            let downloaded_piece: Vec<[u8; BLOCK_SIZE]> = download_piece(&torrent, piece_index);
+            let downloaded_piece: Vec<u8> = download_piece(&torrent, piece_index);
             // TODO: write downloaded_piece to output_file
-            for block in downloaded_piece {
-                fs::write(output_filename, block).unwrap();
-            }
+            fs::write(output_filename, downloaded_piece).unwrap();
             println!("Piece {} downloaded to {}.", piece_index, output_filename);
         }
         _ => println!("unknown command: {}", args[1])
