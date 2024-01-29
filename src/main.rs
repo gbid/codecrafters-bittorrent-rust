@@ -63,7 +63,7 @@ impl TrackerResponse {
     }
 }
 // 16kiB
-const BLOCK_SIZE: usize = 16*2^10;
+const BLOCK_SIZE: usize = 16*1024;
 trait SocketAddrExt {
     fn from_bytes(raw: &[u8; 6]) -> Self;
 }
@@ -77,30 +77,85 @@ impl SocketAddrExt for SocketAddr {
     }
 }
 
-fn receiveMessage(mut stream: &TcpStream) -> io::Result<PeerMessage> {
-    // let mut stream = TcpStream::connect(peer)?;
-    // read length prefix (4 bytes)
-    let mut length_buf = [0u8; 4];
-    stream.read_exact(&mut length_buf);
-    let length = u32::from_be_bytes(length_buf);
-    // read message id (1 byte)
-    let mut id_buf = [0u8; 1];
-    stream.read_exact(&mut id_buf);
-    let id = u8::from_be_bytes(id_buf);
-    // read payload (of length as indicated in prefix bytes)
-    let mut payload_buf = Vec::with_capacity(length.try_into().unwrap());
-    stream.take(length.into()).read(&mut payload_buf);
-    let msg = match id {
-        5 => Ok(PeerMessage::Bitfield(payload_buf)),//todo!("Bitfield"),
-        2 => Ok(PeerMessage::Interested),
-        1 => Ok(PeerMessage::Unchoke),
-        6 => Ok(PeerMessage::Request(RequestPayload::from_bytes(&payload_buf)?)),
-        7 => Ok(PeerMessage::Piece(PiecePayload::from_bytes(payload_buf)?)),
-        _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Unkown message type id")),
-    };
-    msg
+#[derive(Debug)]
+enum PeerMessage {
+    Bitfield(Vec<u8>),
+    Interested,
+    Unchoke,
+    Request(RequestPayload),
+    Piece(PiecePayload),
 }
 
+impl PeerMessage {
+    const ID_BITFIELD: u8 = 5;
+    const ID_INTERESTED: u8 = 2;
+    const ID_UNCHOKE: u8 = 1;
+    const ID_REQUEST: u8 = 6;
+    const ID_PIECE: u8 = 7;
+    fn read_from_tcp_stream(mut stream: &TcpStream) -> io::Result<PeerMessage> {
+        // let mut stream = TcpStream::connect(peer)?;
+        // read length prefix (4 bytes)
+        let mut length_buf = [0u8; 4];
+        stream.read_exact(&mut length_buf).unwrap();
+        let length = u32::from_be_bytes(length_buf);
+        // read message id (1 byte)
+        let mut id_buf = [0u8; 1];
+        stream.read_exact(&mut id_buf).unwrap();
+        let id = u8::from_be_bytes(id_buf);
+        // read payload (of length as indicated in prefix bytes)
+        dbg!(length);
+        dbg!(id);
+        // let payload_length: usize = length.try_into().unwrap() - 1;
+        let payload_length: usize = <u32 as TryInto<usize>>::try_into(length).unwrap() - 1;
+        dbg!(payload_length);
+        let mut payload_buf: Vec<u8> = vec![0; payload_length];
+        stream.read_exact(&mut payload_buf).unwrap();
+        dbg!(&payload_buf);
+        let msg = match id {
+            PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
+            PeerMessage::ID_INTERESTED => Ok(PeerMessage::Interested),
+            PeerMessage::ID_UNCHOKE => Ok(PeerMessage::Unchoke),
+            PeerMessage::ID_REQUEST => Ok(PeerMessage::Request(RequestPayload::from_bytes(&payload_buf)?)),
+            PeerMessage::ID_PIECE => Ok(PeerMessage::Piece(PiecePayload::from_bytes(payload_buf)?)),
+            _ => Err(io::Error::new(io::ErrorKind::InvalidData,
+                    format!("Unkown message type id: length: {}, id: {}, payload: {:?}", length, id, payload_buf)
+                    )),
+        };
+        msg
+    }
+    fn to_bytes(&self) -> io::Result<Vec<u8>> {
+        let mut buffer = Vec::new();
+        match self {
+            PeerMessage::Bitfield(_payload_buf) => {
+                todo!()
+            },
+            PeerMessage::Interested => {
+                let length: u32 = 1;
+                let id: u8 = PeerMessage::ID_INTERESTED;
+                buffer.extend_from_slice(&length.to_be_bytes());
+                buffer.push(id);
+            },
+            PeerMessage::Unchoke => {
+                todo!()
+            },
+            PeerMessage::Request(request_payload) => {
+                let length: u32 = 1 + 3*4;
+                let id: u8 = PeerMessage::ID_REQUEST;
+                buffer.extend_from_slice(&length.to_be_bytes());
+                buffer.push(id);
+                buffer.extend_from_slice(&request_payload.index.to_be_bytes());
+                buffer.extend_from_slice(&request_payload.begin.to_be_bytes());
+                buffer.extend_from_slice(&request_payload.length.to_be_bytes());
+            },
+            PeerMessage::Piece(_piece_payload) => {
+                todo!()
+            },
+        }
+        Ok(buffer)
+    }
+}
+
+#[derive(Debug)]
 struct RequestPayload {
     index: u32,
     begin: u32,
@@ -121,6 +176,7 @@ impl RequestPayload {
         })
     }
 }
+#[derive(Debug)]
 struct PiecePayload {
     index: u32,
     begin: u32,
@@ -141,13 +197,7 @@ impl PiecePayload {
         })
     }
 }
-enum PeerMessage {
-    Bitfield(Vec<u8>),
-    Interested,
-    Unchoke,
-    Request(RequestPayload),
-    Piece(PiecePayload),
-}
+#[derive(Debug)]
 enum DownloadPieceState {
     Handshake,
     Bitfield,
@@ -157,77 +207,86 @@ enum DownloadPieceState {
 }
 
 fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<[u8; BLOCK_SIZE]> {
+    dbg!(torrent);
     let mut state = DownloadPieceState::Handshake;
-    let peer = get_tracker(torrent).peers[0];
-    let stream = TcpStream::connect(&peer).unwrap();
+    let peer = get_tracker(torrent).peers[1];
+    dbg!(&peer);
+    let mut stream = TcpStream::connect(&peer).unwrap();
     loop {
+        dbg!(&state);
         match state {
             DownloadPieceState::Handshake => {
-                perform_peer_handshake(torrent, &peer);
+                let peer_id_hash = perform_peer_handshake(torrent, &stream);
+                dbg!(hex::encode(peer_id_hash));
                 // TODO: validate peer id: [u8; 20]
                 state = DownloadPieceState::Bitfield;
             },
             DownloadPieceState::Bitfield => {
-                let msg = receiveMessage(&stream).unwrap();
+                let msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
+                dbg!(&msg);
                 match msg {
                     PeerMessage::Bitfield(_payload) => {
-                        todo!()
+                        state = DownloadPieceState::Interested;
                     },
-                    _ => panic!("Expected Bitfield"),
-                }
-                state = DownloadPieceState::Interested;
+                    _ => { panic!("Expected Bitfield"); },
+                };
             },
             DownloadPieceState::Interested => {
-                send_interested(&stream);
+                let raw_msg = PeerMessage::to_bytes(&PeerMessage::Interested).unwrap();
+                dbg!(&raw_msg);
+                stream.write(&raw_msg).unwrap();
                 state = DownloadPieceState::Unchoke;
             },
             DownloadPieceState::Unchoke => {
-                let msg = receiveMessage(&stream).unwrap();
+                let msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
+                dbg!(&msg);
                 match msg {
                     PeerMessage::Unchoke => {
-                        todo!()
+                        let number_of_blocks = torrent.info.piece_length / BLOCK_SIZE;
+                        let empty_blocks = Vec::with_capacity(number_of_blocks);
+                        state = DownloadPieceState::Request(empty_blocks);
                     },
-                    _ => panic!("Expected Bitfield"),
+                    _ => {
+                        panic!("Expected Bitfield");
+                    },
                 };
-                let empty_blocks = Vec::with_capacity(torrent.info.pieces.len());
-                state = DownloadPieceState::Request(empty_blocks);
                 // TODO: validate pieces based in sha1 hash of torrent.info.pieces
             },
             DownloadPieceState::Request(mut blocks) => {
+                dbg!(BLOCK_SIZE);
                 for i in 0..blocks.capacity() {
-                    let block_info = BlockInfo {
-                        piece_index,
-                        block_offset: i,
-                        block_length: BLOCK_SIZE,
+                    dbg!(i);
+                    let request_payload = RequestPayload {
+                        index: piece_index,
+                        begin: u32::try_from(i*BLOCK_SIZE).unwrap(),
+                        length: u32::try_from(BLOCK_SIZE).unwrap(),
                     };
-                    let block = request_block(&block_info, &stream);
-                    blocks.push(block);
-                }
+                    dbg!(&request_payload);
+                    let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
+                    dbg!(&raw_request_msg);
+                    stream.write(&raw_request_msg).unwrap();
+                    let response_msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
+                    //let mut dbg_buf = vec![0; 1];
+                    //stream.read_exact(&mut dbg_buf).unwrap();
+                    dbg!(&response_msg);
+                    match response_msg {
+                        PeerMessage::Piece(PiecePayload {
+                            index: _,
+                            begin: _,
+                            block,
+                        }) => {
+                            // TODO: verify index, begin
+                            blocks.push(block.try_into().unwrap());
+                        },
+                        _ => {
+                            panic!("Expected PeerMessage::Piece, got: {:?}", response_msg);
+                        },
+                    };
+                };
                 return blocks;
             },
         }
     }
-}
-
-struct BlockInfo {
-    piece_index: u32,
-    block_offset: usize,
-    block_length: usize,
-}
-
-// fn wait_for_bitfield(stream: &TcpStream) {
-//    todo!() 
-// }
-// 
-fn send_interested(stream: &TcpStream) {
-    todo!()
-}
-
-// fn wait_for_unchoke(stream: &TcpStream) {
-//     todo!()
-// }
-fn request_block(block_info: &BlockInfo, stream: &TcpStream) -> [u8; BLOCK_SIZE] {
-    todo!()
 }
 
 /*
@@ -367,8 +426,8 @@ fn get_tracker(torrent: &Torrent) -> TrackerResponse {
     tracker_response
 }
 
-fn perform_peer_handshake(torrent: &Torrent, peer: &SocketAddr) -> [u8; 20] {
-    let mut stream = TcpStream::connect(peer).unwrap();
+fn perform_peer_handshake(torrent: &Torrent, mut stream: &TcpStream) -> [u8; 20] {
+    // let mut stream = TcpStream::connect(peer).unwrap();
     let protocol_string_length: &[u8; 1] = &[19; 1];
     let protocol_string: &[u8; 19] = "BitTorrent protocol"
         .as_bytes()
@@ -395,7 +454,7 @@ fn perform_peer_handshake(torrent: &Torrent, peer: &SocketAddr) -> [u8; 20] {
             .expect("Failed to convert a fixed-size byte array");
         response_peer_id
     } else {
-        panic!()
+        panic!("Handshake not answered, got: {:?}", result)
     }
 }
 // Usage: your_bittorrent.sh decode "<encoded_value>"
@@ -440,10 +499,25 @@ fn main() {
             let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
             let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
             let peer = SocketAddr::from_str(&args[3]).unwrap();
-            let response_peer_id = perform_peer_handshake(&torrent, &peer);
+            let stream = TcpStream::connect(&peer).unwrap();
+            let response_peer_id = perform_peer_handshake(&torrent, &stream);
             println!("Peer ID: {}", hex::encode(&response_peer_id));
             //let (ip, port)  = peer.split_once(":").unwrap();
         },
+        "download_piece" => {
+            // TODO: properly parse "-o" cli option
+            let output_filename = &args[3];
+            let torrent_filename = &args[4];
+            let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
+            let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
+            let piece_index = u32::from_str(&args[5]).unwrap();
+            let downloaded_piece: Vec<[u8; BLOCK_SIZE]> = download_piece(&torrent, piece_index);
+            // TODO: write downloaded_piece to output_file
+            for block in downloaded_piece {
+                fs::write(output_filename, block).unwrap();
+            }
+            println!("Piece {} downloaded to {}.", piece_index, output_filename);
+        }
         _ => println!("unknown command: {}", args[1])
     }
 }
