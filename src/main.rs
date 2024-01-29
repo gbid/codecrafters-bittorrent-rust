@@ -103,14 +103,14 @@ impl PeerMessage {
         stream.read_exact(&mut id_buf).unwrap();
         let id = u8::from_be_bytes(id_buf);
         // read payload (of length as indicated in prefix bytes)
-        dbg!(length);
-        dbg!(id);
+        //dbg!(length);
+        //dbg!(id);
         // let payload_length: usize = length.try_into().unwrap() - 1;
         let payload_length: usize = <u32 as TryInto<usize>>::try_into(length).unwrap() - 1;
-        dbg!(payload_length);
+        //dbg!(payload_length);
         let mut payload_buf: Vec<u8> = vec![0; payload_length];
         stream.read_exact(&mut payload_buf).unwrap();
-        dbg!(&payload_buf);
+        //dbg!(&payload_buf);
         let msg = match id {
             PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
             PeerMessage::ID_INTERESTED => Ok(PeerMessage::Interested),
@@ -207,10 +207,10 @@ enum DownloadPieceState {
 }
 
 fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
-    dbg!(torrent);
+    //dbg!(torrent);
     let mut state = DownloadPieceState::Handshake;
     let peer = get_tracker(torrent).peers[1];
-    dbg!(&peer);
+    //dbg!(&peer);
     let mut stream = TcpStream::connect(&peer).unwrap();
     // div_ceil not supported by Rust version of codecrafters.io:
     // let total_number_of_pieces: u32 = torrent.info.length.div_ceil(torrent.info.piece_length);
@@ -224,20 +224,20 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
     // div_ceil not supported by Rust version of codecrafters.io:
     // let number_of_blocks = this_pieces_size.div_ceil(block_size);
     let number_of_blocks: u32 = (this_pieces_size + block_size - 1) / block_size;
-    dbg!(this_pieces_size);
-    dbg!(number_of_blocks);
+    //dbg!(this_pieces_size);
+    //dbg!(number_of_blocks);
     loop {
-        dbg!(&state);
+        //dbg!(&state);
         match state {
             DownloadPieceState::Handshake => {
                 let peer_id_hash = perform_peer_handshake(torrent, &stream);
-                dbg!(hex::encode(peer_id_hash));
+                //dbg!(hex::encode(peer_id_hash));
                 // TODO: validate peer id: [u8; 20]
                 state = DownloadPieceState::Bitfield;
             },
             DownloadPieceState::Bitfield => {
                 let msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
-                dbg!(&msg);
+                //dbg!(&msg);
                 match msg {
                     PeerMessage::Bitfield(_payload) => {
                         state = DownloadPieceState::Interested;
@@ -247,13 +247,13 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
             },
             DownloadPieceState::Interested => {
                 let raw_msg = PeerMessage::to_bytes(&PeerMessage::Interested).unwrap();
-                dbg!(&raw_msg);
+                //dbg!(&raw_msg);
                 stream.write(&raw_msg).unwrap();
                 state = DownloadPieceState::Unchoke;
             },
             DownloadPieceState::Unchoke => {
                 let msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
-                dbg!(&msg);
+                //dbg!(&msg);
                 match msg {
                     PeerMessage::Unchoke => {
                         state = DownloadPieceState::Request;
@@ -265,29 +265,29 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
                 // TODO: validate pieces based in sha1 hash of torrent.info.pieces
             },
             DownloadPieceState::Request => {
-                dbg!(block_size);
+                //dbg!(block_size);
                 let mut piece: Vec<u8> = Vec::with_capacity(torrent.info.length.try_into().unwrap());
                 for i in 0..number_of_blocks {
-                    dbg!(i);
+                    //dbg!(i);
                     let this_blocks_size: u32 = if i == number_of_blocks - 1 {
                         (this_pieces_size % block_size).try_into().unwrap()
                     } else {
                         u32::try_from(block_size).unwrap()
                     };
-                    dbg!(this_blocks_size);
+                    //dbg!(this_blocks_size);
                     let request_payload = RequestPayload {
                         index: piece_index,
                         begin: i*block_size,
                         length: this_blocks_size,
                     };
-                    dbg!(&request_payload);
+                    //dbg!(&request_payload);
                     let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
-                    dbg!(&raw_request_msg);
+                    //dbg!(&raw_request_msg);
                     stream.write(&raw_request_msg).unwrap();
                     let response_msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
                     //let mut dbg_buf = vec![0; 1];
                     //stream.read_exact(&mut dbg_buf).unwrap();
-                    dbg!(&response_msg);
+                    //dbg!(&response_msg);
                     match response_msg {
                         PeerMessage::Piece(PiecePayload {
                             index: _,
@@ -359,7 +359,7 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
 fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
     // If encoded_value starts with a digit, it's a number
     //
-    dbg!(&encoded_value);
+    //dbg!(&encoded_value);
     let (head, mut tail) = encoded_value.split_first().unwrap();
     let (val, new_tail) = match head {
         b'i' => {
@@ -398,7 +398,7 @@ fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
         },
         _ =>  panic!("Unhandled encoded value: {:?}", encoded_value)
     };
-    dbg!(&val);
+    //dbg!(&val);
     (val, new_tail)
 }
 
@@ -438,10 +438,10 @@ fn get_tracker(torrent: &Torrent) -> TrackerResponse {
         .unwrap();
 
     let response_body = response.bytes().unwrap();
-    dbg!(&response_body);
+    //dbg!(&response_body);
     let intermediate_tracker_response: IntermediateTrackerResponse = serde_bencode::from_bytes(&response_body).unwrap();
     let tracker_response = TrackerResponse::from_intermediate(intermediate_tracker_response);
-    dbg!(&tracker_response);
+    //dbg!(&tracker_response);
     tracker_response
 }
 
@@ -501,7 +501,7 @@ fn main() {
                     println!("{}", hex::encode(piece));
                 }
             } else {
-                dbg!(&torrent_result);
+                //dbg!(&torrent_result);
             }
         },
         "peers" => {
