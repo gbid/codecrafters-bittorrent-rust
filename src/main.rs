@@ -230,7 +230,7 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
         //dbg!(&state);
         match state {
             DownloadPieceState::Handshake => {
-                let peer_id_hash = perform_peer_handshake(torrent, &stream);
+                let _peer_id_hash = perform_peer_handshake(torrent, &stream);
                 //dbg!(hex::encode(peer_id_hash));
                 // TODO: validate peer id: [u8; 20]
                 state = DownloadPieceState::Bitfield;
@@ -306,6 +306,17 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
             },
         }
     }
+}
+
+fn download_and_verify_pieces(torrent: &Torrent) -> Vec<u8> {
+    let number_of_pieces: u32 = (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
+    let mut pieces: Vec<Option<Vec<u8>>> = vec![None; number_of_pieces.try_into().unwrap()];
+    for piece_index in 0..number_of_pieces.try_into().unwrap() {
+        let piece = download_piece(torrent, piece_index);
+        assert!(is_piece_hash_correct(&piece, piece_index, torrent));
+        pieces[usize::try_from(piece_index).unwrap()] = Some(piece);
+    }
+    pieces.into_iter().map(|piece| piece.unwrap()).flatten().collect()
 }
 
 #[allow(dead_code)]
@@ -429,6 +440,18 @@ fn perform_peer_handshake(torrent: &Torrent, mut stream: &TcpStream) -> [u8; 20]
         panic!("Handshake not answered, got: {:?}", result)
     }
 }
+
+fn is_piece_hash_correct(piece: &[u8], piece_index: u32, torrent: &Torrent) -> bool {
+    let a: usize = 20 * usize::try_from(piece_index).unwrap();
+    let b: usize = 20 * usize::try_from(piece_index + 1).unwrap();
+    let hash = |bytes: &[u8]| -> [u8; 20] {
+        let mut hasher = Sha1::new();
+        hasher.update(bytes);
+        hasher.finalize().into()
+    };
+    torrent.info.pieces[a..b] == hash(&piece)
+}
+
 // Usage: your_bittorrent.sh decode "<encoded_value>"
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -485,18 +508,24 @@ fn main() {
             let piece_index = u32::from_str(&args[5]).unwrap();
             let downloaded_piece: Vec<u8> = download_piece(&torrent, piece_index);
 
-            // verify piece hash
-            let a: usize = 20 * usize::try_from(piece_index).unwrap();
-            let b: usize = 20 * usize::try_from(piece_index + 1).unwrap();
-            let hash = |bytes: &[u8]| -> [u8; 20] {
-                let mut hasher = Sha1::new();
-                hasher.update(bytes);
-                hasher.finalize().into()
-            };
-            assert_eq!(torrent.info.pieces[a..b], hash(&downloaded_piece));
+            assert!(is_piece_hash_correct(&downloaded_piece, piece_index, &torrent));
             fs::write(output_filename, downloaded_piece).unwrap();
             println!("Piece {} downloaded to {}.", piece_index, output_filename);
-        }
+        },
+        "download" => {
+            // your_bittorrent.sh download -o /tmp/test.txt sample.torrent
+            // TODO: properly parse "-o" cli option
+            let output_filename = &args[3];
+            let torrent_filename = &args[4];
+            let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
+            let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
+            let downloaded_pieces: Vec<u8> = download_and_verify_pieces(&torrent);
+            fs::write(output_filename, &downloaded_pieces).unwrap();
+
+            println!("Downloaded {} to {}", torrent_filename, output_filename);
+            // and here’s the output it expects:
+            // Downloaded test.torrent to /tmp/test.txt.
+        },
         _ => println!("unknown command: {}", args[1])
     }
 }
