@@ -7,6 +7,11 @@ Refactors:
 		bencode
 		tracker info
 
+Dependencies:
+												main
+	          network
+	tracker     |                |
+	lib/torrent |  peer_messages | bencode
 TODO:
 	Error handling	
 		Results/unwraps

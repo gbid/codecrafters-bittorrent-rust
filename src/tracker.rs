@@ -36,7 +36,8 @@ impl TrackerResponse {
 
 pub fn get_tracker(torrent: &Torrent) -> TrackerResponse {
     let info_hash = torrent.get_info_hash();
-    let info_hash_encoded = urlencoding::encode_binary(&info_hash); // Custom encoding
+    let info_hash_encoded = urlencoding::encode_binary(&info_hash);
+    // mock our own peer_id as proposed by codecrafters.io
     let peer_id = "00112233445566778899";
     let port = "6881";
     let uploaded = "0";

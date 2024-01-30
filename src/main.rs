@@ -17,26 +17,22 @@ fn main() {
         },
         "info" => {
             let torrent_filename = &args[2];
-            let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
-            let torrent_result: Result<Torrent, _> = serde_bencode::from_bytes(content);
-            if let Ok(torrent) = torrent_result {
-                println!("Tracker URL: {}", torrent.announce);
-                println!("Length: {}", torrent.info.length);
-                let info_hash = torrent.get_info_hash();
-                println!("Info Hash: {}", hex::encode(&info_hash));
-                println!("Piece Length: {}", torrent.info.piece_length);
-                println!("Piece Hashes:");
-                for piece in torrent.info.pieces.chunks(20) {
-                    println!("{}", hex::encode(piece));
-                }
-            } else {
-                //dbg!(&torrent_result);
+            let content: Vec<u8> = fs::read(torrent_filename).unwrap();
+            let torrent = Torrent::from_bytes(&content);
+            println!("Tracker URL: {}", torrent.announce);
+            println!("Length: {}", torrent.info.length);
+            let info_hash = torrent.get_info_hash();
+            println!("Info Hash: {}", hex::encode(&info_hash));
+            println!("Piece Length: {}", torrent.info.piece_length);
+            println!("Piece Hashes:");
+            for piece in torrent.info.pieces.chunks(20) {
+                println!("{}", hex::encode(piece));
             }
         },
         "peers" => {
             let torrent_filename = &args[2];
-            let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
-            let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
+            let content: Vec<u8> = fs::read(torrent_filename).unwrap();
+            let torrent: Torrent = serde_bencode::from_bytes(&content).unwrap();
             let tracker_response = tracker::get_tracker(&torrent);
             for peer in tracker_response.peers {
                 println!("{}", peer);
@@ -50,18 +46,18 @@ fn main() {
             let stream = TcpStream::connect(&peer).unwrap();
             let response_peer_id = network::perform_peer_handshake(&torrent, &stream);
             println!("Peer ID: {}", hex::encode(&response_peer_id));
-            //let (ip, port)  = peer.split_once(":").unwrap();
         },
         "download_piece" => {
+            // your_bittorrent.sh download_piece -o /tmp/test.txt sample.torrent 0
             // TODO: properly parse "-o" cli option
             let output_filename = &args[3];
             let torrent_filename = &args[4];
             let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
-            let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
+            let torrent = Torrent::from_bytes(&content);
             let piece_index = u32::from_str(&args[5]).unwrap();
             let downloaded_piece: Vec<u8> = network::download_piece(&torrent, piece_index);
-
             assert!(torrent.is_piece_hash_correct(&downloaded_piece, piece_index));
+
             fs::write(output_filename, downloaded_piece).unwrap();
             println!("Piece {} downloaded to {}.", piece_index, output_filename);
         },
@@ -70,14 +66,12 @@ fn main() {
             // TODO: properly parse "-o" cli option
             let output_filename = &args[3];
             let torrent_filename = &args[4];
-            let content: &Vec<u8> = &fs::read(torrent_filename).unwrap();
-            let torrent: Torrent = serde_bencode::from_bytes(content).unwrap();
+            let content: Vec<u8> = fs::read(torrent_filename).unwrap();
+            let torrent = Torrent::from_bytes(&content);
             let downloaded_pieces: Vec<u8> = network::download_and_verify_pieces(&torrent);
             fs::write(output_filename, &downloaded_pieces).unwrap();
 
             println!("Downloaded {} to {}", torrent_filename, output_filename);
-            // and here’s the output it expects:
-            // Downloaded test.torrent to /tmp/test.txt.
         },
         _ => println!("unknown command: {}", args[1])
     }

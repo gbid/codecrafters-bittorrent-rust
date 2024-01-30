@@ -15,6 +15,9 @@ pub struct Torrent {
 }
 
 impl Torrent {
+    pub fn from_bytes(bytes: &[u8]) -> Torrent {
+        serde_bencode::from_bytes(bytes).unwrap()
+    }
     pub fn get_info_hash(&self) -> [u8; 20] {
         let info_bytes = serde_bencode::to_bytes(&self.info).unwrap();
         let mut hasher = Sha1::new();
