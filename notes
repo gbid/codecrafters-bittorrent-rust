@@ -6,7 +6,11 @@ Refactors:
 		downloads
 		bencode
 		tracker info
-	
+
+TODO:
+	Error handling	
+		Results/unwraps
+		Bittorrent protocol failures
  
 	
 Torrent:
@@ -36,4 +40,3 @@ Tracker GET request
 		interval: i64
 		peers: String
 			(IP, port)
-

@@ -1,4 +1,6 @@
-fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
+use std::str;
+
+pub fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
     // If encoded_value starts with a digit, it's a number
     //
     //dbg!(&encoded_value);

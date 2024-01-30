@@ -1,3 +1,8 @@
+use serde::{ Deserialize };
+use serde_with::{ Bytes, serde_as };
+use std::net::{ SocketAddr, Ipv4Addr };
+use crate::Torrent;
+
 #[serde_as]
 #[derive(Deserialize, Debug)]
 struct IntermediateTrackerResponse {
@@ -11,9 +16,9 @@ struct IntermediateTrackerResponse {
 }
 
 #[derive(Debug)]
-struct TrackerResponse {
+pub struct TrackerResponse {
     interval: i64,
-    peers: Vec<SocketAddr>,
+    pub peers: Vec<SocketAddr>,
 }
 
 impl TrackerResponse {
@@ -29,8 +34,8 @@ impl TrackerResponse {
     }
 }
 
-fn get_tracker(torrent: &Torrent) -> TrackerResponse {
-    let info_hash = get_info_hash(torrent);
+pub fn get_tracker(torrent: &Torrent) -> TrackerResponse {
+    let info_hash = torrent.get_info_hash();
     let info_hash_encoded = urlencoding::encode_binary(&info_hash); // Custom encoding
     let peer_id = "00112233445566778899";
     let port = "6881";
@@ -70,4 +75,3 @@ impl SocketAddrExt for SocketAddr {
         SocketAddr::new(ip.into(), port)
     }
 }
-

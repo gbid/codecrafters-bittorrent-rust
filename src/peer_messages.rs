@@ -1,5 +1,9 @@
+use std::net::TcpStream;
+use std::io;
+use std::io::{ Read };
+
 #[derive(Debug)]
-enum PeerMessage {
+pub enum PeerMessage {
     Bitfield(Vec<u8>),
     Interested,
     Unchoke,
@@ -13,8 +17,9 @@ impl PeerMessage {
     const ID_UNCHOKE: u8 = 1;
     const ID_REQUEST: u8 = 6;
     const ID_PIECE: u8 = 7;
-    fn read_from_tcp_stream(mut stream: &TcpStream) -> io::Result<PeerMessage> {
-        // let mut stream = TcpStream::connect(peer)?;
+    // TODO: read from &[u8] to get rid of networking
+    // Can we make this generic with the Read trait?
+    pub fn read_from_tcp_stream(mut stream: &TcpStream) -> io::Result<PeerMessage> {
         // read length prefix (4 bytes)
         let mut length_buf = [0u8; 4];
         stream.read_exact(&mut length_buf).unwrap();
@@ -44,7 +49,7 @@ impl PeerMessage {
         };
         msg
     }
-    fn to_bytes(&self) -> io::Result<Vec<u8>> {
+    pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
         let mut buffer = Vec::new();
         match self {
             PeerMessage::Bitfield(_payload_buf) => {
@@ -77,10 +82,10 @@ impl PeerMessage {
 }
 
 #[derive(Debug)]
-struct RequestPayload {
-    index: u32,
-    begin: u32,
-    length: u32,
+pub struct RequestPayload {
+    pub index: u32,
+    pub begin: u32,
+    pub length: u32,
 }
 impl RequestPayload {
     fn from_bytes(raw: &[u8]) -> io::Result<RequestPayload> {
@@ -98,10 +103,10 @@ impl RequestPayload {
     }
 }
 #[derive(Debug)]
-struct PiecePayload {
-    index: u32,
-    begin: u32,
-    block: Vec<u8>,
+pub struct PiecePayload {
+    pub index: u32,
+    pub begin: u32,
+    pub block: Vec<u8>,
 }
 impl PiecePayload {
     fn from_bytes(mut raw: Vec<u8>) -> io::Result<PiecePayload> {

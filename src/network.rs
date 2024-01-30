@@ -1,3 +1,8 @@
+use std::net::TcpStream;
+use std::io::{ Write, Read };
+use crate::{ tracker, Torrent, BLOCK_SIZE };
+use crate::peer_messages::{ PeerMessage, RequestPayload, PiecePayload };
+
 #[derive(Debug)]
 enum DownloadPieceState {
     Handshake,
@@ -7,26 +12,12 @@ enum DownloadPieceState {
     Request,
 }
 
-fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
+pub fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
     //dbg!(torrent);
     let mut state = DownloadPieceState::Handshake;
-    let peer = get_tracker(torrent).peers[1];
+    let peer = tracker::get_tracker(torrent).peers[0];
     //dbg!(&peer);
     let mut stream = TcpStream::connect(&peer).unwrap();
-    // div_ceil not supported by Rust version of codecrafters.io:
-    // let total_number_of_pieces: u32 = torrent.info.length.div_ceil(torrent.info.piece_length);
-    let total_number_of_pieces: u32 = (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
-    let this_pieces_size = if piece_index == total_number_of_pieces - 1 {
-        torrent.info.length % torrent.info.piece_length
-    } else {
-        torrent.info.piece_length
-    };
-    let block_size: u32 = BLOCK_SIZE.try_into().unwrap();
-    // div_ceil not supported by Rust version of codecrafters.io:
-    // let number_of_blocks = this_pieces_size.div_ceil(block_size);
-    let number_of_blocks: u32 = (this_pieces_size + block_size - 1) / block_size;
-    //dbg!(this_pieces_size);
-    //dbg!(number_of_blocks);
     loop {
         //dbg!(&state);
         match state {
@@ -63,23 +54,15 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
                         panic!("Expected Bitfield");
                     },
                 };
-                // TODO: validate pieces based in sha1 hash of torrent.info.pieces
             },
             DownloadPieceState::Request => {
-                //dbg!(block_size);
                 let mut piece: Vec<u8> = Vec::with_capacity(torrent.info.length.try_into().unwrap());
-                for i in 0..number_of_blocks {
-                    //dbg!(i);
-                    let this_blocks_size: u32 = if i == number_of_blocks - 1 && this_pieces_size % block_size != 0 {
-                        (this_pieces_size % block_size).try_into().unwrap()
-                    } else {
-                        u32::try_from(block_size).unwrap()
-                    };
-                    //dbg!(this_blocks_size);
+                for block_index in 0..torrent.number_of_blocks(piece_index) {
+                    //dbg!(block_index);
                     let request_payload = RequestPayload {
                         index: piece_index,
-                        begin: i*block_size,
-                        length: this_blocks_size,
+                        begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
+                        length: torrent.block_size(block_index, piece_index)
                     };
                     //dbg!(&request_payload);
                     let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
@@ -103,31 +86,52 @@ fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
                         },
                     };
                 };
+                // TODO: validate piece based in sha1 hash of torrent.info.pieces
                 return piece;
             },
         }
     }
 }
 
-fn download_and_verify_pieces(torrent: &Torrent) -> Vec<u8> {
+pub fn download_and_verify_pieces(torrent: &Torrent) -> Vec<u8> {
     let number_of_pieces: u32 = (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
     let mut pieces: Vec<Option<Vec<u8>>> = vec![None; number_of_pieces.try_into().unwrap()];
     for piece_index in 0..number_of_pieces.try_into().unwrap() {
         let piece = download_piece(torrent, piece_index);
-        assert!(is_piece_hash_correct(&piece, piece_index, torrent));
+        assert!(torrent.is_piece_hash_correct(&piece, piece_index));
         pieces[usize::try_from(piece_index).unwrap()] = Some(piece);
     }
     pieces.into_iter().map(|piece| piece.unwrap()).flatten().collect()
 }
 
-fn is_piece_hash_correct(piece: &[u8], piece_index: u32, torrent: &Torrent) -> bool {
-    let a: usize = 20 * usize::try_from(piece_index).unwrap();
-    let b: usize = 20 * usize::try_from(piece_index + 1).unwrap();
-    let hash = |bytes: &[u8]| -> [u8; 20] {
-        let mut hasher = Sha1::new();
-        hasher.update(bytes);
-        hasher.finalize().into()
-    };
-    torrent.info.pieces[a..b] == hash(&piece)
+pub fn perform_peer_handshake(torrent: &Torrent, mut stream: &TcpStream) -> [u8; 20] {
+    // let mut stream = TcpStream::connect(peer).unwrap();
+    let protocol_string_length: &[u8; 1] = &[19; 1];
+    let protocol_string: &[u8; 19] = "BitTorrent protocol"
+        .as_bytes()
+        .try_into()
+        .expect("Failed to convert a fixed-size byte array");
+    let reserved: &[u8; 8] = &[0; 8];
+    let infohash: [u8; 20] = torrent.get_info_hash();
+    let peer_id: &[u8; 20] = "00112233445566778899"
+        .as_bytes()
+        .try_into()
+        .expect("Failed to convert a fixed-size byte array");
+    let mut handshake_request: Vec<u8> = Vec::with_capacity(68);
+    handshake_request.extend_from_slice(protocol_string_length);
+    handshake_request.extend_from_slice(protocol_string);
+    handshake_request.extend_from_slice(reserved);
+    handshake_request.extend_from_slice(&infohash);
+    handshake_request.extend_from_slice(peer_id);
+    stream.write(&handshake_request).unwrap();
+    let mut handshake_response = [0; 68];
+    let result = stream.read(&mut handshake_response);
+    if let Ok(68) = result {
+        let response_peer_id: [u8; 20] = handshake_response[48..68]
+            .try_into()
+            .expect("Failed to convert a fixed-size byte array");
+        response_peer_id
+    } else {
+        panic!("Handshake not answered, got: {:?}", result)
+    }
 }
-
