@@ -3,6 +3,24 @@ TODO:
 		Results/unwraps
 		Bittorrent protocol failures
 
+
+Bittorrent protocol failures:
+	Tracker is single point of failure => no way to recover => just fail in get_tracker
+	Peers are redundant	
+		Request Queue with every Piece
+			Pick Peers in Round-Robin order
+			Reinsert upon download failure from Peer
+			Simultaneously request up to 5 pieces
+				max 1 request/peer or > 1?
+			Implementation details:
+				What to use as Queue in Rust?
+				max 1 request/peer or > 1: multiple TCP connections per peer possible?
+				
+			
+			
+			
+
+
 Dependencies:
 												main
 	          network

@@ -1,4 +1,3 @@
-use std::net::TcpStream;
 use std::io;
 use std::io::{ Read };
 
@@ -19,14 +18,14 @@ impl PeerMessage {
     const ID_PIECE: u8 = 7;
     // TODO: read from &[u8] to get rid of networking
     // Can we make this generic with the Read trait?
-    pub fn read_from_tcp_stream(mut stream: &TcpStream) -> io::Result<PeerMessage> {
+    pub fn from_reader<R: Read>(mut reader: R) -> io::Result<PeerMessage> {
         // read length prefix (4 bytes)
         let mut length_buf = [0u8; 4];
-        stream.read_exact(&mut length_buf).unwrap();
+        reader.read_exact(&mut length_buf).unwrap();
         let length = u32::from_be_bytes(length_buf);
         // read message id (1 byte)
         let mut id_buf = [0u8; 1];
-        stream.read_exact(&mut id_buf).unwrap();
+        reader.read_exact(&mut id_buf).unwrap();
         let id = u8::from_be_bytes(id_buf);
         // read payload (of length as indicated in prefix bytes)
         //dbg!(length);
@@ -35,7 +34,7 @@ impl PeerMessage {
         let payload_length: usize = <u32 as TryInto<usize>>::try_into(length).unwrap() - 1;
         //dbg!(payload_length);
         let mut payload_buf: Vec<u8> = vec![0; payload_length];
-        stream.read_exact(&mut payload_buf).unwrap();
+        reader.read_exact(&mut payload_buf).unwrap();
         //dbg!(&payload_buf);
         let msg = match id {
             PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
@@ -49,6 +48,26 @@ impl PeerMessage {
         };
         msg
     }
+
+    // pub fn from_bytes(bytes: &[u8]) -> PeerMessage {
+    //     assert!(bytes.len() >= 5);
+    //     let length = u32::from_be_bytes(bytes[0..4]);
+    //     let id = bytes[4];
+    //     let payload_length: usize = usize::try_from(length).unwrap() - 1;
+    //     assert!(bytes.len() >= 5 + payload_length);
+    //     let mut payload: Vec<u8> = todo!("Copy from bytes[5..5+payload_length");
+    //     let msg = match id {
+    //         PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
+    //         PeerMessage::ID_INTERESTED => Ok(PeerMessage::Interested),
+    //         PeerMessage::ID_UNCHOKE => Ok(PeerMessage::Unchoke),
+    //         PeerMessage::ID_REQUEST => Ok(PeerMessage::Request(RequestPayload::from_bytes(&payload_buf)?)),
+    //         PeerMessage::ID_PIECE => Ok(PeerMessage::Piece(PiecePayload::from_bytes(payload_buf)?)),
+    //         _ => Err(io::Error::new(io::ErrorKind::InvalidData,
+    //                 format!("Unkown message type id: length: {}, id: {}, payload: {:?}", length, id, payload_buf)
+    //                 )),
+    //     };
+    //     msg
+    // }
     pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
         let mut buffer = Vec::new();
         match self {

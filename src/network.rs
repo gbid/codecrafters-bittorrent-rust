@@ -28,7 +28,7 @@ pub fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
                 state = DownloadPieceState::Bitfield;
             },
             DownloadPieceState::Bitfield => {
-                let msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
+                let msg = PeerMessage::from_reader(&stream).unwrap();
                 //dbg!(&msg);
                 match msg {
                     PeerMessage::Bitfield(_payload) => {
@@ -44,7 +44,7 @@ pub fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
                 state = DownloadPieceState::Unchoke;
             },
             DownloadPieceState::Unchoke => {
-                let msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
+                let msg = PeerMessage::from_reader(&stream).unwrap();
                 //dbg!(&msg);
                 match msg {
                     PeerMessage::Unchoke => {
@@ -68,7 +68,7 @@ pub fn download_piece(torrent: &Torrent, piece_index: u32) -> Vec<u8> {
                     let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
                     //dbg!(&raw_request_msg);
                     stream.write(&raw_request_msg).unwrap();
-                    let response_msg = PeerMessage::read_from_tcp_stream(&stream).unwrap();
+                    let response_msg = PeerMessage::from_reader(&stream).unwrap();
                     //let mut dbg_buf = vec![0; 1];
                     //stream.read_exact(&mut dbg_buf).unwrap();
                     //dbg!(&response_msg);
