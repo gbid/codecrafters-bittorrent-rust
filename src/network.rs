@@ -1,5 +1,6 @@
 use std::net::TcpStream;
 use std::io::{ Write, Read };
+use std::collections::VecDeque;
 use crate::{ tracker, Torrent, BLOCK_SIZE };
 use crate::peer_messages::{ PeerMessage, RequestPayload, PiecePayload };
 
@@ -22,8 +23,7 @@ pub fn download_piece(piece_index: u32, torrent: &Torrent) -> Vec<u8> {
         //dbg!(&state);
         match state {
             DownloadPieceState::Handshake => {
-                let peer_id_hash = perform_peer_handshake(torrent, &stream).unwrap();
-                assert_eq!(peer_id_hash, torrent.get_info_hash());
+                let _peer_id_hash = perform_peer_handshake(torrent, &stream).unwrap();
                 //dbg!(hex::encode(peer_id_hash));
                 // TODO: validate peer id: [u8; 20]
                 state = DownloadPieceState::Bitfield;
@@ -57,43 +57,67 @@ pub fn download_piece(piece_index: u32, torrent: &Torrent) -> Vec<u8> {
                 };
             },
             DownloadPieceState::Request => {
-                let mut piece: Vec<u8> = Vec::with_capacity(torrent.info.length.try_into().unwrap());
-                for block_index in 0..torrent.number_of_blocks(piece_index) {
-                    //dbg!(block_index);
-                    let request_payload = RequestPayload {
-                        index: piece_index,
-                        begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
-                        length: torrent.block_size(block_index, piece_index)
-                    };
-                    //dbg!(&request_payload);
-                    let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
-                    //dbg!(&raw_request_msg);
-                    stream.write(&raw_request_msg).unwrap();
-                    let response_msg = PeerMessage::from_reader(&stream).unwrap();
-                    //let mut dbg_buf = vec![0; 1];
-                    //stream.read_exact(&mut dbg_buf).unwrap();
-                    //dbg!(&response_msg);
-                    match response_msg {
-                        PeerMessage::Piece(PiecePayload {
-                            index: _,
-                            begin: _,
-                            block,
-                        }) => {
-                            // TODO: verify index, begin
-                            piece.extend_from_slice(&block);
-                        },
-                        _ => {
-                            panic!("Expected PeerMessage::Piece, got: {:?}", response_msg);
-                        },
-                    };
-                };
-                // TODO: validate piece based in sha1 hash of torrent.info.pieces
-                return piece;
+                let mut piece: Vec<Option<Vec<u8>>> = vec![None; torrent.info.length.try_into().unwrap()];
+                let number_of_blocks = torrent.number_of_blocks(piece_index);
+                const MAX_REQUESTS: u32 = 5;
+                let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
+                for block_index in 0..MAX_REQUESTS {
+                    send_request(block_index, piece_index, &torrent, &mut stream, &mut active_requests)
+                }
+                for block_index in MAX_REQUESTS..number_of_blocks {
+                    if active_requests.len() < 5 {
+                        send_request(block_index, piece_index, &torrent, &mut stream, &mut active_requests)
+                    }
+                    else {
+                        handle_response(&mut stream, &mut active_requests, &mut piece);
+                    }
+                    dbg!(&active_requests);
+                }
+
+                while !active_requests.is_empty() {
+                    handle_response(&mut stream, &mut active_requests, &mut piece);
+                    dbg!(&active_requests);
+                }
+                return piece.into_iter().filter(Option::is_some).flatten().flatten().collect()
             },
         }
     }
 }
 
+
+
+fn send_request(
+    block_index: u32, piece_index: u32, torrent: &Torrent,
+    stream: &mut TcpStream, active_requests: &mut VecDeque<u32>)
+{
+    let request_payload = RequestPayload {
+        index: piece_index,
+        begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
+        length: torrent.block_size(block_index, piece_index)
+    };
+    let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
+    stream.write(&raw_request_msg).unwrap();
+    active_requests.push_back(block_index);
+}
+
+fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<u32>, piece: &mut Vec<Option<Vec<u8>>>) {
+    let response_msg = PeerMessage::from_reader(stream).unwrap();
+    match response_msg {
+        PeerMessage::Piece(PiecePayload {
+            index,
+            begin,
+            block,
+        }) => {
+            // TODO: verify index, begin
+            let block_index = begin / (u32::try_from(BLOCK_SIZE).unwrap());
+            piece[usize::try_from(block_index).unwrap()] = Some(block);
+            active_requests.retain(|&x| x != block_index);
+        },
+        _ => {
+            panic!("Expected PeerMessage::Piece, got: {:?}", response_msg);
+        },
+    }
+}
 // pub fn download_piece_from_peer(piece_index: u32, torrent: &Torrent, peer: &SocketAddr) -> Option<Vec<u8>> {
 //     return None;
 //     //dbg!(torrent);
