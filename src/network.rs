@@ -14,23 +14,17 @@ enum DownloadPieceState {
 }
 
 pub fn download_piece(piece_index: u32, torrent: &Torrent) -> Vec<u8> {
-    //dbg!(torrent);
     let mut state = DownloadPieceState::Handshake;
-    let peer = tracker::get_tracker(torrent).peers[0];
-    //dbg!(&peer);
+    let peer = tracker::get_tracker(torrent).peers[1];
     let mut stream = TcpStream::connect(&peer).unwrap();
     loop {
-        //dbg!(&state);
         match state {
             DownloadPieceState::Handshake => {
                 let _peer_id_hash = perform_peer_handshake(torrent, &stream).unwrap();
-                //dbg!(hex::encode(peer_id_hash));
-                // TODO: validate peer id: [u8; 20]
                 state = DownloadPieceState::Bitfield;
             },
             DownloadPieceState::Bitfield => {
                 let msg = PeerMessage::from_reader(&stream).unwrap();
-                //dbg!(&msg);
                 match msg {
                     PeerMessage::Bitfield(_payload) => {
                         state = DownloadPieceState::Interested;
@@ -40,13 +34,11 @@ pub fn download_piece(piece_index: u32, torrent: &Torrent) -> Vec<u8> {
             },
             DownloadPieceState::Interested => {
                 let raw_msg = PeerMessage::to_bytes(&PeerMessage::Interested).unwrap();
-                //dbg!(&raw_msg);
                 stream.write(&raw_msg).unwrap();
                 state = DownloadPieceState::Unchoke;
             },
             DownloadPieceState::Unchoke => {
                 let msg = PeerMessage::from_reader(&stream).unwrap();
-                //dbg!(&msg);
                 match msg {
                     PeerMessage::Unchoke => {
                         state = DownloadPieceState::Request;
@@ -60,23 +52,22 @@ pub fn download_piece(piece_index: u32, torrent: &Torrent) -> Vec<u8> {
                 let mut piece: Vec<Option<Vec<u8>>> = vec![None; torrent.info.length.try_into().unwrap()];
                 let number_of_blocks = torrent.number_of_blocks(piece_index);
                 const MAX_REQUESTS: u32 = 5;
+                let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
                 let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
-                for block_index in 0..MAX_REQUESTS {
+                for block_index in 0..max_requests {
                     send_request(block_index, piece_index, &torrent, &mut stream, &mut active_requests)
                 }
-                for block_index in MAX_REQUESTS..number_of_blocks {
-                    if active_requests.len() < 5 {
+                for block_index in max_requests..number_of_blocks {
+                    if active_requests.len() < max_requests.try_into().unwrap() {
                         send_request(block_index, piece_index, &torrent, &mut stream, &mut active_requests)
                     }
                     else {
                         handle_response(&mut stream, &mut active_requests, &mut piece);
                     }
-                    dbg!(&active_requests);
                 }
 
                 while !active_requests.is_empty() {
                     handle_response(&mut stream, &mut active_requests, &mut piece);
-                    dbg!(&active_requests);
                 }
                 return piece.into_iter().filter(Option::is_some).flatten().flatten().collect()
             },
