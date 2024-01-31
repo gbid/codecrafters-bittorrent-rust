@@ -117,14 +117,14 @@ fn perform_handshake(torrent_filename: &str, peer_address: &str) {
     let torrent: Torrent = serde_bencode::from_bytes(&content).unwrap();
     let peer = SocketAddr::from_str(peer_address).unwrap();
     let stream = TcpStream::connect(&peer).unwrap();
-    let response_peer_id = network::perform_peer_handshake(&torrent, &stream);
+    let response_peer_id = network::perform_peer_handshake(&torrent, &stream).unwrap();
     println!("Peer ID: {}", hex::encode(&response_peer_id));
 }
 
 fn download_single_piece(torrent_filename: &str, output_filename: &str, piece_index: u32) {
     let content = fs::read(torrent_filename).unwrap();
     let torrent = Torrent::from_bytes(&content);
-    let downloaded_piece: Vec<u8> = network::download_piece(&torrent, piece_index);
+    let downloaded_piece: Vec<u8> = network::download_piece(piece_index, &torrent);
     assert!(torrent.is_piece_hash_correct(&downloaded_piece, piece_index));
     fs::write(output_filename, downloaded_piece).unwrap();
     println!("Piece {} downloaded to {}.", piece_index, output_filename);

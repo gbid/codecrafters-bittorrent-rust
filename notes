@@ -15,7 +15,20 @@ Bittorrent protocol failures:
 			Implementation details:
 				What to use as Queue in Rust?
 				max 1 request/peer or > 1: multiple TCP connections per peer possible?
-				
+	Peer Pool:
+		Peers
+			| handshake completed
+			| active (responded in last t seconds, no timeouts)
+		Provides download method for 
+			Block?
+				Takes any Peer
+				Sends PieceRequest
+			Piece?
+			File?
+			
+Pipeline Requests for single piece:
+	blocks: Option<Vec<u8>> // actual data of each block, initially empty
+
 			
 			
 			
