@@ -1,7 +1,9 @@
 TODO:
+	PeerMessage::to_bytes -> PeerMessage::to_writer (async?)
 	Error handling	
 		Results/unwraps
 		Bittorrent protocol failures
+
 
 
 Bittorrent protocol failures:
@@ -26,13 +28,6 @@ Bittorrent protocol failures:
 			Piece?
 			File?
 			
-Pipeline Requests for single piece:
-	blocks: Option<Vec<u8>> // actual data of each block, initially empty
-
-			
-			
-			
-
 
 Dependencies:
 												main

@@ -1,5 +1,5 @@
 use std::io;
-use std::io::{ Read };
+use tokio::io::{ AsyncReadExt };
 
 #[derive(Debug)]
 pub enum PeerMessage {
@@ -18,24 +18,19 @@ impl PeerMessage {
     const ID_PIECE: u8 = 7;
     // TODO: read from &[u8] to get rid of networking
     // Can we make this generic with the Read trait?
-    pub fn from_reader<R: Read>(mut reader: R) -> io::Result<PeerMessage> {
+    pub async fn from_reader<R: AsyncReadExt + Unpin >(mut reader: R) -> io::Result<PeerMessage> {
         // read length prefix (4 bytes)
         let mut length_buf = [0u8; 4];
-        reader.read_exact(&mut length_buf).unwrap();
+        reader.read_exact(&mut length_buf).await?;
         let length = u32::from_be_bytes(length_buf);
         // read message id (1 byte)
         let mut id_buf = [0u8; 1];
-        reader.read_exact(&mut id_buf).unwrap();
+        reader.read_exact(&mut id_buf).await?;
         let id = u8::from_be_bytes(id_buf);
         // read payload (of length as indicated in prefix bytes)
-        //dbg!(length);
-        //dbg!(id);
-        // let payload_length: usize = length.try_into().unwrap() - 1;
         let payload_length: usize = <u32 as TryInto<usize>>::try_into(length).unwrap() - 1;
-        //dbg!(payload_length);
         let mut payload_buf: Vec<u8> = vec![0; payload_length];
-        reader.read_exact(&mut payload_buf).unwrap();
-        //dbg!(&payload_buf);
+        reader.read_exact(&mut payload_buf).await?;
         let msg = match id {
             PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
             PeerMessage::ID_INTERESTED => Ok(PeerMessage::Interested),
