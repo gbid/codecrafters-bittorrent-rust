@@ -3,8 +3,9 @@ use std::{ fs, str::FromStr};
 use std::net::{ SocketAddr };
 use tokio::net::{ TcpStream };
 use std::io;
-use bittorrent_starter_rust::{ Torrent, bencode, tracker, network };
 use hex;
+use std::sync::{ Arc };
+use bittorrent_starter_rust::{ Torrent, bencode, tracker, network };
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -79,7 +80,8 @@ async fn main() -> io::Result<()> {
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
             let content = fs::read(torrent_filename)?;
             let torrent = Torrent::from_bytes(&content);
-            let tracker_response = tracker::get_tracker(&torrent);
+            let torrent_arc = Arc::new(torrent);
+            let tracker_response = tracker::get_tracker(torrent_arc);
             for peer in tracker_response.peers {
                 println!("{}", peer);
             }
@@ -122,7 +124,8 @@ async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Re
     let torrent: Torrent = serde_bencode::from_bytes(&content).unwrap();
     let peer = SocketAddr::from_str(peer_address).unwrap();
     let mut stream = TcpStream::connect(&peer).await?;
-    let response_peer_id = network::perform_peer_handshake(&torrent, &mut stream).await?;
+    let torrent_arc = Arc::new(torrent);
+    let response_peer_id = network::perform_peer_handshake(torrent_arc, &mut stream).await?;
     println!("Peer ID: {}", hex::encode(&response_peer_id));
     Ok(())
 }
@@ -130,9 +133,9 @@ async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Re
 async fn download_single_piece(torrent_filename: &str, output_filename: &str, piece_index: u32) -> io::Result<()> {
     let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
-    let peer = tracker::get_tracker(&torrent).peers[0];
-    let downloaded_piece: Vec<u8> = network::download_piece(piece_index, &torrent, &peer).await?;
-    assert!(torrent.is_piece_hash_correct(&downloaded_piece, piece_index));
+    let torrent_arc = Arc::new(torrent);
+    let peer = tracker::get_tracker(torrent_arc.clone()).peers[0];
+    let downloaded_piece: Vec<u8> = network::download_piece(piece_index, torrent_arc, &peer).await?;
     fs::write(output_filename, downloaded_piece)?;
     println!("Piece {} downloaded to {}.", piece_index, output_filename);
     Ok(())
@@ -141,7 +144,8 @@ async fn download_single_piece(torrent_filename: &str, output_filename: &str, pi
 async fn download_torrent(torrent_filename: &str, output_filename: &str) -> io::Result<()> {
     let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
-    let downloaded_pieces: Vec<u8> = network::download_and_verify_pieces(&torrent).await?;
+    let torrent_arc = Arc::new(torrent);
+    let downloaded_pieces: Vec<u8> = network::download_pieces(torrent_arc).await?;
     fs::write(output_filename, &downloaded_pieces)?;
     println!("Downloaded {} to {}", torrent_filename, output_filename);
     Ok(())

@@ -1,6 +1,7 @@
 use serde::{ Deserialize };
 use serde_with::{ Bytes, serde_as };
 use std::net::{ SocketAddr, Ipv4Addr };
+use std::sync::{ Arc };
 use crate::Torrent;
 
 #[serde_as]
@@ -34,7 +35,7 @@ impl TrackerResponse {
     }
 }
 
-pub fn get_tracker(torrent: &Torrent) -> TrackerResponse {
+pub fn get_tracker(torrent: Arc<Torrent>) -> TrackerResponse {
     let info_hash = torrent.get_info_hash();
     let info_hash_encoded = urlencoding::encode_binary(&info_hash);
     // mock our own peer_id as proposed by codecrafters.io
