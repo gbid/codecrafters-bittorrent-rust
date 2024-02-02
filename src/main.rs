@@ -70,14 +70,14 @@ async fn main() -> io::Result<()> {
         },
         Some(("info", sub_matches)) => {
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
-            let content = fs::read(torrent_filename).unwrap();
+            let content = fs::read(torrent_filename)?;
             let torrent = Torrent::from_bytes(&content);
             display_torrent_info(&torrent);
             Ok(())
         },
         Some(("peers", sub_matches)) => {
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
-            let content = fs::read(torrent_filename).unwrap();
+            let content = fs::read(torrent_filename)?;
             let torrent = Torrent::from_bytes(&content);
             let tracker_response = tracker::get_tracker(&torrent);
             for peer in tracker_response.peers {
@@ -118,7 +118,7 @@ fn display_torrent_info(torrent: &Torrent) {
 }
 
 async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Result<()>{
-    let content = fs::read(torrent_filename).unwrap();
+    let content = fs::read(torrent_filename)?;
     let torrent: Torrent = serde_bencode::from_bytes(&content).unwrap();
     let peer = SocketAddr::from_str(peer_address).unwrap();
     let mut stream = TcpStream::connect(&peer).await?;
@@ -128,7 +128,7 @@ async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Re
 }
 
 async fn download_single_piece(torrent_filename: &str, output_filename: &str, piece_index: u32) -> io::Result<()> {
-    let content = fs::read(torrent_filename).unwrap();
+    let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
     let peer = tracker::get_tracker(&torrent).peers[0];
     let downloaded_piece: Vec<u8> = network::download_piece(piece_index, &torrent, &peer).await?;
@@ -139,10 +139,10 @@ async fn download_single_piece(torrent_filename: &str, output_filename: &str, pi
 }
 
 async fn download_torrent(torrent_filename: &str, output_filename: &str) -> io::Result<()> {
-    let content = fs::read(torrent_filename).unwrap();
+    let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
     let downloaded_pieces: Vec<u8> = network::download_and_verify_pieces(&torrent).await?;
-    fs::write(output_filename, &downloaded_pieces).unwrap();
+    fs::write(output_filename, &downloaded_pieces)?;
     println!("Downloaded {} to {}", torrent_filename, output_filename);
     Ok(())
 }
