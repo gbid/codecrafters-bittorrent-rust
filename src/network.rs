@@ -3,16 +3,15 @@ use std::io;
 use std::collections::VecDeque;
 use tokio::net::{ TcpStream };
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use crate::{ tracker, Torrent, BLOCK_SIZE };
 use crate::peer_messages::{ PeerMessage, RequestPayload, PiecePayload };
 
 use tokio::task;
-use futures::stream::{FuturesUnordered, StreamExt};
+use futures::stream::{ FuturesUnordered, StreamExt };
 use std::collections::HashSet;
 use std::sync::{ Arc };
 use tokio::sync::{ Mutex };
-use rand::prelude::*;
 
 #[derive(Debug)]
 enum DownloadPieceState {
@@ -60,7 +59,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
             DownloadPieceState::Request => {
                 let mut piece: Vec<Option<Vec<u8>>> = vec![None; torrent.info.length.try_into().unwrap()];
                 let number_of_blocks = torrent.number_of_blocks(piece_index);
-                const MAX_REQUESTS: u32 = 5;
+                const MAX_REQUESTS: u32 = 10;
                 let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
                 let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
                 for block_index in 0..max_requests {
@@ -125,18 +124,57 @@ async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<
     }
 }
 
-// pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
-//     let number_of_pieces: u32 = (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
-//     let mut pieces: Vec<Option<Vec<u8>>> = vec![None; number_of_pieces.try_into().unwrap()];
-//     let peers = tracker::get_tracker(&torrent).peers;
-//     // TODO: make this truly async
-//     for piece_index in 0..number_of_pieces.try_into().unwrap() {
-//         let piece: Vec<u8> = download_piece(piece_index, torrent, &peer).await?;
-//         pieces[usize::try_from(piece_index).unwrap()] = Some(piece);
-//     }
-//     Ok(pieces.into_iter().map(|piece| piece.unwrap()).flatten().collect())
-// }
 
+#[derive(Debug)]
+pub enum DownloadError {
+    PeerError { peer: SocketAddr, piece_index: u32, error: std::io::Error },
+}
+
+use std::fmt;
+impl fmt::Display for DownloadError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DownloadError::PeerError { ref peer, piece_index, ref error } => {
+                write!(f, "Error with peer {:?} on piece {}: {}", peer, piece_index, error)
+            },
+        }
+    }
+}
+
+impl std::error::Error for DownloadError {}
+
+struct DownloadSuccess {
+    peer: SocketAddr,
+    piece_index: u32,
+    piece_data: Vec<u8>,
+}
+
+async fn try_download_piece(
+    piece_index: u32,
+    torrent: Arc<Torrent>,
+    peer_queue: Arc<Mutex<VecDeque<SocketAddr>>>,
+) -> Result<DownloadSuccess, DownloadError> {
+    'spinning: loop {
+        let peer_option = {
+            let mut queue = peer_queue.lock().await;
+            queue.pop_front()
+        };
+        if let Some(peer) = peer_option {
+            match download_piece(piece_index, torrent, &peer).await {
+                Ok(piece_data) => return Ok(DownloadSuccess {
+                    peer,
+                    piece_index,
+                    piece_data,
+                }),
+                Err(error) => return Err(DownloadError::PeerError {
+                    peer,
+                    piece_index,
+                    error,
+                }),
+            }
+        }
+    }
+}
 pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     let number_of_pieces = (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
     let peers = tracker::get_tracker(torrent.clone()).peers;
@@ -144,46 +182,33 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     let mut futures = FuturesUnordered::new();
 
     for piece_index in 0..number_of_pieces {
-        // does torrent really have to be an Arc<Torrent>?
-        // As an alternative, can we also just clone the Torrent to not having to deal with Arc?
-        // How would that affect performance?
         let torrent_clone = torrent.clone();
         let peer_queue_clone = peer_queue.clone();
-        let future = task::spawn(async move {
-            // let mut queue: VecDeque<SocketAddr> = *peer_queue_clone.lock().unwrap();
-            'spinning: loop {
-                if let Some(peer) = peer_queue_clone.lock().await.pop_front() {
-                    match download_piece(piece_index, torrent_clone, &peer).await {
-                        Ok(piece_data) => return Ok((peer, piece_index, piece_data)),
-                        Err(e) => return Err((peer, piece_index, e)),
-                    }
-                }
-            }
-        });
+        let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
         futures.push(future);
     }
 
     let mut pieces = vec![None; number_of_pieces.try_into().unwrap()];
     while let Some(result) = futures.next().await {
         match result {
-            Ok(Ok((peer, piece_index, piece_data))) => {
+            Ok(Ok(DownloadSuccess {
+                peer,
+                piece_index,
+                piece_data,
+            })) => {
                 peer_queue.lock().await.push_front(peer);
                 pieces[piece_index as usize] = Some(piece_data);
+                dbg!("SUCCESS", &peer, piece_index);
             },
-            Ok(Err((peer, piece_index, _e))) => {
+            Ok(Err(DownloadError::PeerError {
+                peer,
+                piece_index,
+                error,
+            })) => {
+                dbg!("FAILED", &peer, piece_index, error);
                 let torrent_clone = torrent.clone();
                 let peer_queue_clone = peer_queue.clone();
-                let future = task::spawn(async move {
-                    // let mut queue: VecDeque<SocketAddr> = *peer_queue_clone.lock().unwrap();
-                    'spinning: loop {
-                        if let Some(peer) = peer_queue_clone.lock().await.pop_front() {
-                            match download_piece(piece_index, torrent_clone, &peer).await {
-                                Ok(piece_data) => return Ok((peer, piece_index, piece_data)),
-                                Err(e) => return Err((peer, piece_index, e)),
-                            }
-                        }
-                    }
-                });
+                let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
                 futures.push(future);
             }
             Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e.to_string())), // Handle spawn errors
@@ -191,8 +216,6 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     }
 
     // Assemble the downloaded pieces into the final file content
-    
-    // Ok(pieces.into_iter().flatten().collect())
     Ok(pieces.into_iter().map(|piece| piece.unwrap()).flatten().collect())
 }
 
