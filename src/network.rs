@@ -9,7 +9,6 @@ use crate::peer_messages::{ PeerMessage, RequestPayload, PiecePayload };
 
 use tokio::task;
 use futures::stream::{ FuturesUnordered, StreamExt };
-use std::collections::HashSet;
 use std::sync::{ Arc };
 use tokio::sync::{ Mutex };
 
@@ -41,8 +40,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 };
             },
             DownloadPieceState::Interested => {
-                let raw_msg = PeerMessage::to_bytes(&PeerMessage::Interested).unwrap();
-                stream.write(&raw_msg).await?;
+                PeerMessage::Interested.write_to(&mut stream).await?;
                 state = DownloadPieceState::Unchoke;
             },
             DownloadPieceState::Unchoke => {
@@ -98,8 +96,7 @@ async fn send_request(
         begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
         length: torrent.block_size(block_index, piece_index)
     };
-    let raw_request_msg = PeerMessage::to_bytes(&PeerMessage::Request(request_payload)).unwrap();
-    stream.write(&raw_request_msg).await?;
+    PeerMessage::Request(request_payload).write_to(stream).await?;
     active_requests.push_back(block_index);
     Ok(())
 }
@@ -154,7 +151,7 @@ async fn try_download_piece(
     torrent: Arc<Torrent>,
     peer_queue: Arc<Mutex<VecDeque<SocketAddr>>>,
 ) -> Result<DownloadSuccess, DownloadError> {
-    'spinning: loop {
+    loop {
         let peer_option = {
             let mut queue = peer_queue.lock().await;
             queue.pop_front()

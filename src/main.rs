@@ -134,7 +134,7 @@ async fn download_single_piece(torrent_filename: &str, output_filename: &str, pi
     let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
     let torrent_arc = Arc::new(torrent);
-    let peer = tracker::get_tracker(torrent_arc.clone()).peers[0];
+    let peer = tracker::get_tracker(torrent_arc.clone()).peers[1];
     let downloaded_piece: Vec<u8> = network::download_piece(piece_index, torrent_arc, &peer).await?;
     fs::write(output_filename, downloaded_piece)?;
     println!("Piece {} downloaded to {}.", piece_index, output_filename);

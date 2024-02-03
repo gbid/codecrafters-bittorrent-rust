@@ -1,5 +1,5 @@
 use std::io;
-use tokio::io::{ AsyncReadExt };
+use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 
 #[derive(Debug)]
 pub enum PeerMessage {
@@ -44,26 +44,7 @@ impl PeerMessage {
         msg
     }
 
-    // pub fn from_bytes(bytes: &[u8]) -> PeerMessage {
-    //     assert!(bytes.len() >= 5);
-    //     let length = u32::from_be_bytes(bytes[0..4]);
-    //     let id = bytes[4];
-    //     let payload_length: usize = usize::try_from(length).unwrap() - 1;
-    //     assert!(bytes.len() >= 5 + payload_length);
-    //     let mut payload: Vec<u8> = todo!("Copy from bytes[5..5+payload_length");
-    //     let msg = match id {
-    //         PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
-    //         PeerMessage::ID_INTERESTED => Ok(PeerMessage::Interested),
-    //         PeerMessage::ID_UNCHOKE => Ok(PeerMessage::Unchoke),
-    //         PeerMessage::ID_REQUEST => Ok(PeerMessage::Request(RequestPayload::from_bytes(&payload_buf)?)),
-    //         PeerMessage::ID_PIECE => Ok(PeerMessage::Piece(PiecePayload::from_bytes(payload_buf)?)),
-    //         _ => Err(io::Error::new(io::ErrorKind::InvalidData,
-    //                 format!("Unkown message type id: length: {}, id: {}, payload: {:?}", length, id, payload_buf)
-    //                 )),
-    //     };
-    //     msg
-    // }
-    pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
+    pub fn _to_bytes(&self) -> io::Result<Vec<u8>> {
         let mut buffer = Vec::new();
         match self {
             PeerMessage::Bitfield(_payload_buf) => {
@@ -92,6 +73,36 @@ impl PeerMessage {
             },
         }
         Ok(buffer)
+    }
+
+    pub async fn write_to<W: AsyncWriteExt + Unpin>(&self, mut writer: W) -> io::Result<()> {
+        match self {
+            PeerMessage::Bitfield(_payload_buf) => {
+                todo!()
+            },
+            PeerMessage::Interested => {
+                let length: u32 = 1;
+                let id: u8 = PeerMessage::ID_INTERESTED;
+                writer.write_u32(length).await?;
+                writer.write_u8(id).await?;
+            },
+            PeerMessage::Unchoke => {
+                todo!()
+            },
+            PeerMessage::Request(request_payload) => {
+                let length: u32 = 1 + 3*4;
+                let id: u8 = PeerMessage::ID_REQUEST;
+                writer.write_u32(length).await?;
+                writer.write_u8(id).await?;
+                writer.write_u32(request_payload.index).await?;
+                writer.write_u32(request_payload.begin).await?;
+                writer.write_u32(request_payload.length).await?;
+            },
+            PeerMessage::Piece(_piece_payload) => {
+                todo!()
+            },
+        }
+        Ok(())
     }
 }
 
