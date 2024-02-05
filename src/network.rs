@@ -76,7 +76,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 while !active_requests.is_empty() {
                     handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
                 }
-                for block in blocks {
+                for block in blocks.iter() {
                     let block = block.unwrap(); 
                     dbg!(block.len());
                 }
