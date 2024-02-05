@@ -296,7 +296,7 @@ pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStrea
     dbg!(&handshake_response);
     dbg!(hex::encode(&info_hash));
     if &handshake_response.info_hash != &info_hash {
-        dbg!(hex::encode(&info_hash));
+        dbg!(&info_hash, &handshake_response.info_hash);
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Info hash mismatch"));
     }
     Ok(handshake_response)
