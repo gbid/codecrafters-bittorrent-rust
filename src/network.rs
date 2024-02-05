@@ -245,6 +245,7 @@ pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStrea
         .try_into()
         .expect("Failed to convert a fixed-size byte array");
     if &response_info_hash != &info_hash {
+        dbg!(&response_info_hash, &info_hash);
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Info hash mismatch"));
     }
     let response_peer_id: [u8; 20] = handshake_response[48..68]

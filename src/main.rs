@@ -7,6 +7,7 @@ use hex;
 use std::sync::{ Arc };
 use bittorrent_starter_rust::{ Torrent, bencode, tracker, network };
 
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let matches = Command::new("bittorrent-client")
@@ -130,15 +131,25 @@ async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Re
     Ok(())
 }
 
+const MAX_ATTEMPTS: usize = 20;
 async fn download_single_piece(torrent_filename: &str, output_filename: &str, piece_index: u32) -> io::Result<()> {
     let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
     let torrent_arc = Arc::new(torrent);
-    let peer = tracker::get_tracker(torrent_arc.clone()).peers[1];
-    let downloaded_piece: Vec<u8> = network::download_piece(piece_index, torrent_arc, &peer).await?;
-    fs::write(output_filename, downloaded_piece)?;
-    println!("Piece {} downloaded to {}.", piece_index, output_filename);
-    Ok(())
+    let torrent_clone = torrent_arc.clone();
+    let peers = tracker::get_tracker(torrent_clone).peers;
+    for i in 0..MAX_ATTEMPTS {
+        let peer = peers[i % peers.len()];
+        dbg!(i, &peer);
+        let torrent_clone = torrent_arc.clone();
+        if let Ok(piece) = network::download_piece(piece_index, torrent_clone, &peer).await {
+            fs::write(output_filename, piece)?;
+            println!("Piece {} downloaded to {}.", piece_index, output_filename);
+            return Ok(())
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::TimedOut, "MAX_ATTEMPTS many downloads failed"))
+
 }
 
 async fn download_torrent(torrent_filename: &str, output_filename: &str) -> io::Result<()> {
