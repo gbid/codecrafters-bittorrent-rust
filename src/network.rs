@@ -76,11 +76,11 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                     handle_response(&mut stream, &mut active_requests, &mut piece).await?;
                 }
                 let piece: Vec<u8> = piece.into_iter().filter(Option::is_some).flatten().flatten().collect();
-                if true || torrent.is_piece_hash_correct(&piece, piece_index) {
+                dbg!(piece_index, &piece.len(), &torrent.info.piece_length);
+                if torrent.is_piece_hash_correct(&piece, piece_index) {
                     return Ok(piece)
                 }
                 else {
-                    dbg!(&torrent);
                     return Err(io::Error::new(io::ErrorKind::InvalidData, "Piece hash mismatch"))
                 }
             },
@@ -196,14 +196,12 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
             })) => {
                 peer_queue.lock().await.push_front(peer);
                 pieces[piece_index as usize] = Some(piece_data);
-                dbg!("SUCCESS", &peer, piece_index);
             },
             Ok(Err(DownloadError::PeerError {
                 peer,
                 piece_index,
                 error,
             })) => {
-                dbg!("FAILED", &peer, piece_index, error);
                 let torrent_clone = torrent.clone();
                 let peer_queue_clone = peer_queue.clone();
                 let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
