@@ -76,9 +76,9 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 while !active_requests.is_empty() {
                     handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
                 }
-                for block in blocks.iter() {
-                    dbg!(block.as_ref().unwrap().len());
-                }
+                // for block in blocks.iter() {
+                //     dbg!(block.as_ref().unwrap().len());
+                // }
                 let piece: Vec<u8> = blocks
                     .into_iter()
                     .map(|block| block.expect("All blocks must be successfully downloaded"))
@@ -105,6 +105,7 @@ async fn send_request(
         begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
         length: torrent.block_size(block_index, piece_index)
     };
+    dbg!(torrent.block_size(block_index, piece_index));
     dbg!(&request_payload);
     PeerMessage::Request(request_payload).write_to(stream).await?;
     active_requests.push_back(block_index);
