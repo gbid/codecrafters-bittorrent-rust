@@ -70,6 +70,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                     }
                     else {
                         handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
+                        send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
                     }
                 }
 
