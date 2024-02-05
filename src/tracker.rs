@@ -58,10 +58,8 @@ pub fn get_tracker(torrent: Arc<Torrent>) -> TrackerResponse {
         .unwrap();
 
     let response_body = response.bytes().unwrap();
-    //dbg!(&response_body);
     let intermediate_tracker_response: IntermediateTrackerResponse = serde_bencode::from_bytes(&response_body).unwrap();
     let tracker_response = TrackerResponse::from_intermediate(intermediate_tracker_response);
-    //dbg!(&tracker_response);
     tracker_response
 }
 

@@ -126,8 +126,8 @@ async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Re
     let peer = SocketAddr::from_str(peer_address).unwrap();
     let mut stream = TcpStream::connect(&peer).await?;
     let torrent_arc = Arc::new(torrent);
-    let response_peer_id = network::perform_peer_handshake(torrent_arc, &mut stream).await?;
-    println!("Peer ID: {}", hex::encode(&response_peer_id));
+    let response_handshake = network::perform_peer_handshake(torrent_arc, &mut stream).await?;
+    println!("Peer ID: {}", hex::encode(&response_handshake.peer_id));
     Ok(())
 }
 

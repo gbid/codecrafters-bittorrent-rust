@@ -216,44 +216,87 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     Ok(pieces.into_iter().map(|piece| piece.unwrap()).flatten().collect())
 }
 
-pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStream) -> io::Result<[u8; 20]> {
-    // let mut stream = TcpStream::connect(peer).unwrap();
-    let protocol_string_length: &[u8; 1] = &[19; 1];
-    let protocol_string: &[u8; 19] = "BitTorrent protocol"
-        .as_bytes()
-        .try_into()
-        .expect("Failed to convert a fixed-size byte array");
-    let reserved: &[u8; 8] = &[0; 8];
-    let info_hash: [u8; 20] = torrent.get_info_hash();
-    let peer_id: &[u8; 20] = "00112233445566778899"
-        .as_bytes()
-        .try_into()
-        .expect("Failed to convert a fixed-size byte array");
-    let mut handshake_request: Vec<u8> = Vec::with_capacity(68);
-    handshake_request.extend_from_slice(protocol_string_length);
-    handshake_request.extend_from_slice(protocol_string);
-    handshake_request.extend_from_slice(reserved);
-    handshake_request.extend_from_slice(&info_hash);
-    handshake_request.extend_from_slice(peer_id);
-    stream.write(&handshake_request).await?;
-    let mut handshake_response = [0; 68];
-    let response_bytes_read = stream.read_exact(&mut handshake_response).await?;
-    if response_bytes_read != 68 {
-        dbg!(response_bytes_read);
-        dbg!(String::from_utf8_lossy(&handshake_response));
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid handshake response length"));
+pub struct Handshake {
+    pub protocol_string_length: u8,
+    pub protocol_string: [u8; 19],
+    pub reserved: [u8; 8],
+    pub info_hash: [u8; 20],
+    pub peer_id: [u8; 20],
+}
+impl fmt::Debug for Handshake {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Handshake")
+            .field("protocol_string_length", &self.protocol_string_length)
+            .field("protocol_string", &String::from_utf8_lossy(&self.protocol_string))
+            .field("reserved", &self.reserved.iter().map(|b| format!("{:02x}", b)).collect::<String>())
+            .field("info_hash", &hex::encode(&self.info_hash))
+            .field("peer_id", &hex::encode(&self.peer_id))
+            .finish()
     }
-    let response_info_hash: [u8; 20] = handshake_response[28..48]
-        .try_into()
-        .expect("Failed to convert a fixed-size byte array");
-    if &response_info_hash != &info_hash {
-        dbg!(&response_info_hash, &info_hash);
+}
+impl Handshake {
+    fn new(info_hash: [u8; 20], peer_id: [u8; 20]) -> Handshake {
+        let protocol_string_length: u8 = 19;
+        let protocol_string: [u8; 19] = b"BitTorrent protocol".to_owned();
+        let reserved: [u8; 8] = [0; 8];
+        Handshake {
+            protocol_string_length,
+            protocol_string,
+            reserved,
+            info_hash,
+            peer_id,
+        }
+    }
+    async fn write_to<W: AsyncWriteExt + Unpin>(&self, writer: &mut W) -> io::Result<usize> {
+        let mut handshake_request: Vec<u8> = Vec::with_capacity(68);
+        handshake_request.push(self.protocol_string_length);
+        handshake_request.extend_from_slice(&self.protocol_string);
+        handshake_request.extend_from_slice(&self.reserved);
+        handshake_request.extend_from_slice(&self.info_hash);
+        handshake_request.extend_from_slice(&self.peer_id);
+        writer.write(&handshake_request).await
+    }
+    async fn read_from<R: AsyncReadExt + Unpin>(reader: &mut R) -> io::Result<Handshake> {
+        let mut response_buf = [0; 68];
+        let response_bytes_read = reader.read_exact(&mut response_buf).await?;
+        if response_bytes_read != 68 {
+            dbg!(response_bytes_read);
+            dbg!(String::from_utf8_lossy(&response_buf));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid handshake response length"));
+        }
+        let protocol_string_length: u8 = response_buf[0];
+        let protocol_string: [u8; 19] = response_buf[1..20]
+            .try_into()
+            .expect("Failed to convert a fixed-size byte array");
+        let reserved: [u8; 8] = response_buf[20..28]
+            .try_into()
+            .expect("Failed to convert a fixed-size byte array");
+        let info_hash: [u8; 20] = response_buf[28..48]
+            .try_into()
+            .expect("Failed to convert a fixed-size byte array");
+        let peer_id: [u8; 20] = response_buf[48..68]
+            .try_into()
+            .expect("Failed to convert a fixed-size byte array");
+        let handshake = Handshake {
+            protocol_string_length,
+            protocol_string,
+            reserved,
+            info_hash,
+            peer_id,
+        };
+        Ok(handshake)
+    }
+}
+pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStream) -> io::Result<Handshake> {
+    let info_hash: [u8; 20] = torrent.get_info_hash();
+    let my_peer_id: [u8; 20] = b"00112233445566778899".to_owned();
+    let handshake_request = Handshake::new(info_hash, my_peer_id);
+    handshake_request.write_to(stream).await?;
+    let handshake_response = Handshake::read_from(stream).await?;
+    dbg!(&handshake_response);
+    if &handshake_response.info_hash != &info_hash {
+        dbg!(&info_hash);
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Info hash mismatch"));
     }
-    let response_peer_id: [u8; 20] = handshake_response[48..68]
-        .try_into()
-        .expect("Failed to convert a fixed-size byte array");
-    dbg!(String::from_utf8_lossy(&handshake_response));
-    dbg!(&hex::encode(&response_peer_id));
-    Ok(response_peer_id)
+    Ok(handshake_response)
 }
