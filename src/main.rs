@@ -142,10 +142,15 @@ async fn download_single_piece(torrent_filename: &str, output_filename: &str, pi
         let peer = peers[i % peers.len()];
         dbg!(i, &peer);
         let torrent_clone = torrent_arc.clone();
-        if let Ok(piece) = network::download_piece(piece_index, torrent_clone, &peer).await {
-            fs::write(output_filename, piece)?;
-            println!("Piece {} downloaded to {}.", piece_index, output_filename);
-            return Ok(())
+        match network::download_piece(piece_index, torrent_clone, &peer).await {
+            Ok(piece) => {
+                fs::write(output_filename, piece)?;
+                println!("Piece {} downloaded to {}.", piece_index, output_filename);
+                return Ok(())
+            }
+            Err(e) => {
+                dbg!(e);
+            }
         }
     }
     Err(io::Error::new(io::ErrorKind::TimedOut, "MAX_ATTEMPTS many downloads failed"))

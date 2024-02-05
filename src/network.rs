@@ -237,8 +237,10 @@ pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStrea
     handshake_request.extend_from_slice(peer_id);
     stream.write(&handshake_request).await?;
     let mut handshake_response = [0; 68];
-    let response_bytes_read = stream.read(&mut handshake_response).await?;
+    let response_bytes_read = stream.read_exact(&mut handshake_response).await?;
     if response_bytes_read != 68 {
+        dbg!(response_bytes_read);
+        dbg!(String::from_utf8_lossy(&handshake_response));
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid handshake response length"));
     }
     let response_info_hash: [u8; 20] = handshake_response[28..48]
@@ -251,5 +253,7 @@ pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStrea
     let response_peer_id: [u8; 20] = handshake_response[48..68]
         .try_into()
         .expect("Failed to convert a fixed-size byte array");
+    dbg!(String::from_utf8_lossy(&handshake_response));
+    dbg!(&hex::encode(&response_peer_id));
     Ok(response_peer_id)
 }
