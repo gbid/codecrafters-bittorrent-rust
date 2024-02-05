@@ -182,7 +182,6 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     for piece_index in 0..number_of_pieces {
         let torrent_clone = torrent.clone();
         let peer_queue_clone = peer_queue.clone();
-        peer_queue_clone.push_back(peer);
         let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
         futures.push(future);
     }
@@ -204,8 +203,8 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
                 error,
             })) => {
                 let torrent_clone = torrent.clone();
+                peer_queue.lock().await.push_back(peer);
                 let peer_queue_clone = peer_queue.clone();
-                peer_queue_clone.push_back(peer);
                 let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
                 futures.push(future);
             }
