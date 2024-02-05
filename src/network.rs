@@ -12,84 +12,49 @@ use futures::stream::{ FuturesUnordered, StreamExt };
 use std::sync::{ Arc };
 use tokio::sync::{ Mutex };
 
-#[derive(Debug)]
-enum DownloadPieceState {
-    Handshake,
-    Bitfield,
-    Interested,
-    Unchoke,
-    Request,
-}
-
 pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &SocketAddr) -> io::Result<Vec<u8>> {
-    let mut state = DownloadPieceState::Handshake;
     let mut stream = TcpStream::connect(peer).await?;
-    // TODO: instead of tracking explicit state struct, just go sequentially
-    loop {
-        match state {
-            DownloadPieceState::Handshake => {
-                let _peer_id_hash = perform_peer_handshake(torrent.clone(), &mut stream).await?;
-                state = DownloadPieceState::Bitfield;
-            },
-            DownloadPieceState::Bitfield => {
-                let msg = PeerMessage::from_reader(&mut stream).await?;
-                match msg {
-                    PeerMessage::Bitfield(_payload) => {
-                        state = DownloadPieceState::Interested;
-                    },
-                    _ => { panic!("Expected Bitfield"); },
-                };
-            },
-            DownloadPieceState::Interested => {
-                PeerMessage::Interested.write_to(&mut stream).await?;
-                state = DownloadPieceState::Unchoke;
-            },
-            DownloadPieceState::Unchoke => {
-                let msg = PeerMessage::from_reader(&mut stream).await?;
-                match msg {
-                    PeerMessage::Unchoke => {
-                        state = DownloadPieceState::Request;
-                    },
-                    _ => {
-                        panic!("Expected Bitfield");
-                    },
-                };
-            },
-            DownloadPieceState::Request => {
-                let number_of_blocks = torrent.number_of_blocks(piece_index);
-                let mut blocks: Vec<Option<Vec<u8>>> = vec![None; number_of_blocks.try_into().unwrap()];
-                const MAX_REQUESTS: u32 = 10;
-                let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
-                let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
-                for block_index in 0..max_requests {
-                    send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
-                }
-                for block_index in max_requests..number_of_blocks {
-                    if active_requests.len() < max_requests.try_into().unwrap() {
-                        send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
-                    }
-                    else {
-                        handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
-                        send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
-                    }
-                }
-
-                while !active_requests.is_empty() {
-                    handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
-                }
-                let piece: Vec<u8> = blocks
-                    .into_iter()
-                    .map(|block| block.expect("All blocks must be successfully downloaded"))
-                    .flatten()
-                    .collect();
-                if torrent.is_piece_hash_correct(&piece, piece_index) {
-                    return Ok(piece)
-                }
-                else {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Piece hash mismatch"))
-                }
-            },
+    perform_peer_handshake(torrent.clone(), &mut stream).await?;
+    let msg = PeerMessage::from_reader(&mut stream).await?;
+    if !matches!(msg, PeerMessage::Bitfield(_payload)) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Expected Bitfield reponse"));
+    }
+    PeerMessage::Interested.write_to(&mut stream).await?;
+    let msg = PeerMessage::from_reader(&mut stream).await?;
+    if !matches!(msg, PeerMessage::Unchoke) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Expected Unchoke reponse"));
+    }
+    // request blocks of piece
+    let number_of_blocks = torrent.number_of_blocks(piece_index);
+    let mut blocks: Vec<Option<Vec<u8>>> = vec![None; number_of_blocks.try_into().unwrap()];
+    const MAX_REQUESTS: u32 = 10;
+    let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
+    let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
+    for block_index in 0..max_requests {
+        send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
+    }
+    for block_index in max_requests..number_of_blocks {
+        if active_requests.len() < max_requests.try_into().unwrap() {
+            send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
         }
+        else {
+            handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
+            send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
+        }
+    }
+    while !active_requests.is_empty() {
+        handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
+    }
+    let piece: Vec<u8> = blocks
+        .into_iter()
+        .map(|block| block.expect("All blocks must be successfully downloaded"))
+        .flatten()
+        .collect();
+    if torrent.is_piece_hash_correct(&piece, piece_index) {
+        Ok(piece)
+    }
+    else {
+        Err(io::Error::new(io::ErrorKind::InvalidData, "Piece hash mismatch"))
     }
 }
 
