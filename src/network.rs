@@ -24,6 +24,7 @@ enum DownloadPieceState {
 pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &SocketAddr) -> io::Result<Vec<u8>> {
     let mut state = DownloadPieceState::Handshake;
     let mut stream = TcpStream::connect(peer).await?;
+    // TODO: instead of tracking explicit state struct, just go sequentially
     loop {
         match state {
             DownloadPieceState::Handshake => {
@@ -97,6 +98,7 @@ async fn send_request(
         begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
         length: torrent.block_size(block_index, piece_index)
     };
+    dbg!(&request_payload);
     PeerMessage::Request(request_payload).write_to(stream).await?;
     active_requests.push_back(block_index);
     Ok(())
