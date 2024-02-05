@@ -78,7 +78,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 }
                 for block in blocks {
                     let block = block.unwrap(); 
-                    println!(block.len())
+                    dbg!(block.len());
                 }
                 let piece: Vec<u8> = blocks.into_iter().filter(Option::is_some).flatten().flatten().collect();
                 dbg!(piece_index, &piece.len(), &torrent.info.piece_length);
