@@ -80,7 +80,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                     return Ok(piece)
                 }
                 else {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Info hash mismatch"))
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Piece hash mismatch"))
                 }
             },
         }
