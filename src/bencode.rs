@@ -2,8 +2,6 @@ use std::str;
 
 pub fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8]) {
     // If encoded_value starts with a digit, it's a number
-    //
-    //dbg!(&encoded_value);
     let (head, mut tail) = encoded_value.split_first().unwrap();
     let (val, new_tail) = match head {
         b'i' => {
@@ -42,6 +40,5 @@ pub fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8])
         },
         _ =>  panic!("Unhandled encoded value: {:?}", encoded_value)
     };
-    //dbg!(&val);
     (val, new_tail)
 }

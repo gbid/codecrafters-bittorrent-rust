@@ -77,15 +77,11 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 while !active_requests.is_empty() {
                     handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
                 }
-                // for block in blocks.iter() {
-                //     dbg!(block.as_ref().unwrap().len());
-                // }
                 let piece: Vec<u8> = blocks
                     .into_iter()
                     .map(|block| block.expect("All blocks must be successfully downloaded"))
                     .flatten()
                     .collect();
-                dbg!(piece_index, &piece.len(), &torrent.info.piece_length);
                 if torrent.is_piece_hash_correct(&piece, piece_index) {
                     return Ok(piece)
                 }
@@ -106,9 +102,6 @@ async fn send_request(
         begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
         length: torrent.block_size(block_index, piece_index)
     };
-    dbg!(block_index, &request_payload);
-    dbg!(torrent.block_size(block_index, piece_index));
-    dbg!(&active_requests);
     PeerMessage::Request(request_payload).write_to(stream).await?;
     active_requests.push_back(block_index);
     Ok(())
@@ -122,9 +115,7 @@ async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<
             begin,
             block,
         }) => {
-            // TODO: verify index, begin
             let block_index = begin / (u32::try_from(BLOCK_SIZE).unwrap());
-            dbg!(block_index);
             piece[usize::try_from(block_index).unwrap()] = Some(block);
             active_requests.retain(|&x| x != block_index);
             Ok(())
