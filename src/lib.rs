@@ -63,6 +63,7 @@ impl Torrent {
             hasher.update(bytes);
             hasher.finalize().into()
         };
+        dbg!(hex::encode(&self.info.pieces[a..b]), hex::encode(hash(&piece)));
         self.info.pieces[a..b] == hash(&piece)
     }
 }
