@@ -56,7 +56,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 };
             },
             DownloadPieceState::Request => {
-                let mut blocks: Vec<Option<Vec<u8>>> = vec![None; torrent.info.length.try_into().unwrap()];
+                let mut blocks: Vec<Option<Vec<u8>>> = vec![None; torrent.number_of_blocks(piece_index).try_into().unwrap()];
                 let number_of_blocks = torrent.number_of_blocks(piece_index);
                 const MAX_REQUESTS: u32 = 10;
                 let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
