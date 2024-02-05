@@ -80,6 +80,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                     return Ok(piece)
                 }
                 else {
+                    dbg!(&torrent);
                     return Err(io::Error::new(io::ErrorKind::InvalidData, "Piece hash mismatch"))
                 }
             },
@@ -260,8 +261,6 @@ impl Handshake {
         let mut response_buf = [0; 68];
         let response_bytes_read = reader.read_exact(&mut response_buf).await?;
         if response_bytes_read != 68 {
-            dbg!(response_bytes_read);
-            dbg!(String::from_utf8_lossy(&response_buf));
             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid handshake response length"));
         }
         let protocol_string_length: u8 = response_buf[0];
@@ -293,10 +292,7 @@ pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStrea
     let handshake_request = Handshake::new(info_hash, my_peer_id);
     handshake_request.write_to(stream).await?;
     let handshake_response = Handshake::read_from(stream).await?;
-    dbg!(&handshake_response);
-    dbg!(hex::encode(&info_hash));
     if &handshake_response.info_hash != &info_hash {
-        dbg!(&info_hash, &handshake_response.info_hash);
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Info hash mismatch"));
     }
     Ok(handshake_response)
