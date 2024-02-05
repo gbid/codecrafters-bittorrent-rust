@@ -135,6 +135,7 @@ const MAX_ATTEMPTS: usize = 20;
 async fn download_single_piece(torrent_filename: &str, output_filename: &str, piece_index: u32) -> io::Result<()> {
     let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
+    dbg!(&torrent);
     let torrent_arc = Arc::new(torrent);
     let torrent_clone = torrent_arc.clone();
     let peers = tracker::get_tracker(torrent_clone).peers;

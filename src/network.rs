@@ -106,7 +106,7 @@ async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<
     let response_msg = PeerMessage::from_reader(stream).await?;
     match response_msg {
         PeerMessage::Piece(PiecePayload {
-            index,
+            index: _,
             begin,
             block,
         }) => {
@@ -182,6 +182,7 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     for piece_index in 0..number_of_pieces {
         let torrent_clone = torrent.clone();
         let peer_queue_clone = peer_queue.clone();
+        peer_queue_clone.push_back(peer);
         let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
         futures.push(future);
     }
@@ -204,6 +205,7 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
             })) => {
                 let torrent_clone = torrent.clone();
                 let peer_queue_clone = peer_queue.clone();
+                peer_queue_clone.push_back(peer);
                 let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
                 futures.push(future);
             }
