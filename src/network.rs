@@ -204,7 +204,7 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
             Ok(Err(DownloadError::PeerError {
                 peer,
                 piece_index,
-                error,
+                error: _,
             })) => {
                 let torrent_clone = torrent.clone();
                 peer_queue.lock().await.push_back(peer);

@@ -7,7 +7,7 @@ use crate::Torrent;
 #[serde_as]
 #[derive(Deserialize, Debug)]
 struct IntermediateTrackerResponse {
-    interval: i64,
+    // interval: i64,
     //#[serde(rename = "min interval")]
     //min_interval: i64,
     #[serde_as(as = "Bytes")]
@@ -18,7 +18,7 @@ struct IntermediateTrackerResponse {
 
 #[derive(Debug)]
 pub struct TrackerResponse {
-    interval: i64,
+    // interval: i64,
     pub peers: Vec<SocketAddr>,
 }
 
@@ -29,7 +29,7 @@ impl TrackerResponse {
             SocketAddr::from_bytes(&arr)
         }).collect();
         TrackerResponse {
-            interval: intermediate.interval,
+            // interval: intermediate.interval,
             peers,
         }
     }
