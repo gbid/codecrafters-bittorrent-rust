@@ -106,7 +106,8 @@ async fn send_request(
         length: torrent.block_size(block_index, piece_index)
     };
     dbg!(torrent.block_size(block_index, piece_index));
-    dbg!(&request_payload);
+    dbg!(block_index, &request_payload);
+    dbg!(&active_requests);
     PeerMessage::Request(request_payload).write_to(stream).await?;
     active_requests.push_back(block_index);
     Ok(())
