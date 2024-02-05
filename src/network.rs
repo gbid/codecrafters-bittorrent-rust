@@ -57,16 +57,16 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
             },
             DownloadPieceState::Request => {
                 let mut blocks: Vec<Option<Vec<u8>>> = vec![None; torrent.info.length.try_into().unwrap()];
-                let number_of_blocks = torrent.number_of_blocks(blocks_index);
+                let number_of_blocks = torrent.number_of_blocks(piece_index);
                 const MAX_REQUESTS: u32 = 10;
                 let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
                 let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
                 for block_index in 0..max_requests {
-                    send_request(block_index, blocks_index, torrent.clone(), &mut stream, &mut active_requests).await?;
+                    send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
                 }
                 for block_index in max_requests..number_of_blocks {
                     if active_requests.len() < max_requests.try_into().unwrap() {
-                        send_request(block_index, blocks_index, torrent.clone(), &mut stream, &mut active_requests).await?;
+                        send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
                     }
                     else {
                         handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
@@ -76,7 +76,6 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 while !active_requests.is_empty() {
                     handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
                 }
-                dbg!(&blocks);
                 let piece: Vec<u8> = blocks.into_iter().filter(Option::is_some).flatten().flatten().collect();
                 dbg!(piece_index, &piece.len(), &torrent.info.piece_length);
                 if torrent.is_piece_hash_correct(&piece, piece_index) {
