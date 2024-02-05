@@ -56,8 +56,8 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 };
             },
             DownloadPieceState::Request => {
-                let mut blocks: Vec<Option<Vec<u8>>> = vec![None; torrent.number_of_blocks(piece_index).try_into().unwrap()];
                 let number_of_blocks = torrent.number_of_blocks(piece_index);
+                let mut blocks: Vec<Option<Vec<u8>>> = vec![None; number_of_blocks.try_into().unwrap()];
                 const MAX_REQUESTS: u32 = 10;
                 let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
                 let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
@@ -122,6 +122,7 @@ async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<
         }) => {
             // TODO: verify index, begin
             let block_index = begin / (u32::try_from(BLOCK_SIZE).unwrap());
+            dbg!(block_index);
             piece[usize::try_from(block_index).unwrap()] = Some(block);
             active_requests.retain(|&x| x != block_index);
             Ok(())
