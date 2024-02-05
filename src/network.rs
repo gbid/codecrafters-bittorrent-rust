@@ -79,7 +79,11 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
                 for block in blocks.iter() {
                     dbg!(block.as_ref().unwrap().len());
                 }
-                let piece: Vec<u8> = blocks.into_iter().filter(Option::is_some).flatten().flatten().collect();
+                let piece: Vec<u8> = blocks
+                    .into_iter()
+                    .map(|block| block.expect("All blocks must be successfully downloaded"))
+                    .flatten()
+                    .collect();
                 dbg!(piece_index, &piece.len(), &torrent.info.piece_length);
                 if torrent.is_piece_hash_correct(&piece, piece_index) {
                     return Ok(piece)
