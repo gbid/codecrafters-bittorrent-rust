@@ -216,14 +216,14 @@ impl Handshake {
             peer_id,
         }
     }
-    async fn write_to<W: AsyncWriteExt + Unpin>(&self, writer: &mut W) -> io::Result<usize> {
+    async fn write_to<W: AsyncWriteExt + Unpin>(&self, writer: &mut W) -> io::Result<()> {
         let mut handshake_request: Vec<u8> = Vec::with_capacity(68);
         handshake_request.push(self.protocol_string_length);
         handshake_request.extend_from_slice(&self.protocol_string);
         handshake_request.extend_from_slice(&self.reserved);
         handshake_request.extend_from_slice(&self.info_hash);
         handshake_request.extend_from_slice(&self.peer_id);
-        writer.write(&handshake_request).await
+        writer.write_all(&handshake_request).await
     }
     async fn read_from<R: AsyncReadExt + Unpin>(reader: &mut R) -> io::Result<Handshake> {
         let mut response_buf = [0; 68];
