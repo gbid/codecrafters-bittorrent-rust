@@ -1,46 +1,77 @@
-use std::net::{ SocketAddr };
-use std::io;
 use std::collections::VecDeque;
 use std::fmt::Write;
-use tokio::net::{ TcpStream };
+use std::io;
+use std::net::SocketAddr;
+use tokio::net::TcpStream;
 
-use tokio::io::{ AsyncReadExt, AsyncWriteExt };
-use crate::{ tracker, Torrent, BLOCK_SIZE };
-use crate::peer_messages::{ PeerMessage, RequestPayload, PiecePayload };
+use crate::peer_messages::{PeerMessage, PiecePayload, RequestPayload};
+use crate::{tracker, Torrent, BLOCK_SIZE};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use futures::stream::{FuturesUnordered, StreamExt};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::task;
-use futures::stream::{ FuturesUnordered, StreamExt };
-use std::sync::{ Arc };
-use tokio::sync::{ Mutex };
 
-pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &SocketAddr) -> io::Result<Vec<u8>> {
+pub async fn download_piece(
+    piece_index: u32,
+    torrent: Arc<Torrent>,
+    peer: &SocketAddr,
+) -> io::Result<Vec<u8>> {
     let mut stream = TcpStream::connect(peer).await?;
     perform_peer_handshake(torrent.clone(), &mut stream).await?;
     let msg = PeerMessage::from_reader(&mut stream).await?;
     if !matches!(msg, PeerMessage::Bitfield(_payload)) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Expected Bitfield reponse"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Expected Bitfield reponse",
+        ));
     }
     PeerMessage::Interested.write_to(&mut stream).await?;
     let msg = PeerMessage::from_reader(&mut stream).await?;
     if !matches!(msg, PeerMessage::Unchoke) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Expected Unchoke reponse"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Expected Unchoke reponse",
+        ));
     }
     // request blocks of piece
     let number_of_blocks = torrent.number_of_blocks(piece_index);
     let mut blocks: Vec<Option<Vec<u8>>> = vec![None; number_of_blocks.try_into().unwrap()];
     const MAX_REQUESTS: u32 = 10;
     let max_requests = u32::min(MAX_REQUESTS, number_of_blocks);
-    let mut active_requests: VecDeque<u32> = VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
+    let mut active_requests: VecDeque<u32> =
+        VecDeque::with_capacity(MAX_REQUESTS.try_into().unwrap());
     for block_index in 0..max_requests {
-        send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
+        send_request(
+            block_index,
+            piece_index,
+            torrent.clone(),
+            &mut stream,
+            &mut active_requests,
+        )
+        .await?;
     }
     for block_index in max_requests..number_of_blocks {
         if active_requests.len() < max_requests.try_into().unwrap() {
-            send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
-        }
-        else {
+            send_request(
+                block_index,
+                piece_index,
+                torrent.clone(),
+                &mut stream,
+                &mut active_requests,
+            )
+            .await?;
+        } else {
             handle_response(&mut stream, &mut active_requests, &mut blocks).await?;
-            send_request(block_index, piece_index, torrent.clone(), &mut stream, &mut active_requests).await?;
+            send_request(
+                block_index,
+                piece_index,
+                torrent.clone(),
+                &mut stream,
+                &mut active_requests,
+            )
+            .await?;
         }
     }
     while !active_requests.is_empty() {
@@ -52,27 +83,38 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
         .collect();
     if torrent.is_piece_hash_correct(&piece, piece_index) {
         Ok(piece)
-    }
-    else {
-        Err(io::Error::new(io::ErrorKind::InvalidData, "Piece hash mismatch"))
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Piece hash mismatch",
+        ))
     }
 }
 
 async fn send_request(
-    block_index: u32, piece_index: u32, torrent: Arc<Torrent>,
-    stream: &mut TcpStream, active_requests: &mut VecDeque<u32>)
-    -> io::Result<()> {
+    block_index: u32,
+    piece_index: u32,
+    torrent: Arc<Torrent>,
+    stream: &mut TcpStream,
+    active_requests: &mut VecDeque<u32>,
+) -> io::Result<()> {
     let request_payload = RequestPayload {
         index: piece_index,
-        begin: block_index*(u32::try_from(BLOCK_SIZE).unwrap()),
-        length: torrent.block_size(block_index, piece_index)
+        begin: block_index * (u32::try_from(BLOCK_SIZE).unwrap()),
+        length: torrent.block_size(block_index, piece_index),
     };
-    PeerMessage::Request(request_payload).write_to(stream).await?;
+    PeerMessage::Request(request_payload)
+        .write_to(stream)
+        .await?;
     active_requests.push_back(block_index);
     Ok(())
 }
 
-async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<u32>, piece: &mut [Option<Vec<u8>>]) -> io::Result<()> {
+async fn handle_response(
+    stream: &mut TcpStream,
+    active_requests: &mut VecDeque<u32>,
+    piece: &mut [Option<Vec<u8>>],
+) -> io::Result<()> {
     let response_msg = PeerMessage::from_reader(stream).await?;
     match response_msg {
         PeerMessage::Piece(PiecePayload {
@@ -84,26 +126,41 @@ async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<
             piece[usize::try_from(block_index).unwrap()] = Some(block);
             active_requests.retain(|&x| x != block_index);
             Ok(())
-        },
-        _ => {
-            Err(io::Error::new(io::ErrorKind::InvalidData, format!("Expected PeerMessage::Piece with payload, got {:?}", response_msg)))
-        },
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "Expected PeerMessage::Piece with payload, got {:?}",
+                response_msg
+            ),
+        )),
     }
 }
 
-
 #[derive(Debug)]
 pub enum DownloadError {
-    PeerError { peer: SocketAddr, piece_index: u32, error: std::io::Error },
+    PeerError {
+        peer: SocketAddr,
+        piece_index: u32,
+        error: std::io::Error,
+    },
 }
 
 use std::fmt;
 impl fmt::Display for DownloadError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            DownloadError::PeerError { ref peer, piece_index, ref error } => {
-                write!(f, "Error with peer {:?} on piece {}: {}", peer, piece_index, error)
-            },
+            DownloadError::PeerError {
+                ref peer,
+                piece_index,
+                ref error,
+            } => {
+                write!(
+                    f,
+                    "Error with peer {:?} on piece {}: {}",
+                    peer, piece_index, error
+                )
+            }
         }
     }
 }
@@ -128,22 +185,27 @@ async fn try_download_piece(
         };
         if let Some(peer) = peer_option {
             match download_piece(piece_index, torrent, &peer).await {
-                Ok(piece_data) => return Ok(DownloadSuccess {
-                    peer,
-                    piece_index,
-                    piece_data,
-                }),
-                Err(error) => return Err(DownloadError::PeerError {
-                    peer,
-                    piece_index,
-                    error,
-                }),
+                Ok(piece_data) => {
+                    return Ok(DownloadSuccess {
+                        peer,
+                        piece_index,
+                        piece_data,
+                    })
+                }
+                Err(error) => {
+                    return Err(DownloadError::PeerError {
+                        peer,
+                        piece_index,
+                        error,
+                    })
+                }
             }
         }
     }
 }
 pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
-    let number_of_pieces = (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
+    let number_of_pieces =
+        (torrent.info.length + torrent.info.piece_length - 1) / torrent.info.piece_length;
     let peers = tracker::get_tracker(torrent.clone()).peers;
     let peer_queue = Arc::new(Mutex::new(VecDeque::from(peers)));
     let mut futures = FuturesUnordered::new();
@@ -151,7 +213,11 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     for piece_index in 0..number_of_pieces {
         let torrent_clone = torrent.clone();
         let peer_queue_clone = peer_queue.clone();
-        let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
+        let future = task::spawn(try_download_piece(
+            piece_index,
+            torrent_clone,
+            peer_queue_clone,
+        ));
         futures.push(future);
     }
 
@@ -165,7 +231,7 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
             })) => {
                 peer_queue.lock().await.push_front(peer);
                 pieces[piece_index as usize] = Some(piece_data);
-            },
+            }
             Ok(Err(DownloadError::PeerError {
                 peer,
                 piece_index,
@@ -174,7 +240,11 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
                 let torrent_clone = torrent.clone();
                 peer_queue.lock().await.push_back(peer);
                 let peer_queue_clone = peer_queue.clone();
-                let future = task::spawn(try_download_piece(piece_index, torrent_clone, peer_queue_clone));
+                let future = task::spawn(try_download_piece(
+                    piece_index,
+                    torrent_clone,
+                    peer_queue_clone,
+                ));
                 futures.push(future);
             }
             Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e.to_string())), // Handle spawn errors
@@ -182,7 +252,10 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     }
 
     // Assemble the downloaded pieces into the final file content
-    Ok(pieces.into_iter().flat_map(|piece| piece.unwrap()).collect())
+    Ok(pieces
+        .into_iter()
+        .flat_map(|piece| piece.unwrap())
+        .collect())
 }
 
 pub struct Handshake {
@@ -196,11 +269,17 @@ impl fmt::Debug for Handshake {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Handshake")
             .field("protocol_string_length", &self.protocol_string_length)
-            .field("protocol_string", &String::from_utf8_lossy(&self.protocol_string))
-            .field("reserved", &self.reserved.iter().fold(String::new(), |mut output, b| {
-                let _ = write!(output, "{b:02X}");
-                output
-            }))
+            .field(
+                "protocol_string",
+                &String::from_utf8_lossy(&self.protocol_string),
+            )
+            .field(
+                "reserved",
+                &self.reserved.iter().fold(String::new(), |mut output, b| {
+                    let _ = write!(output, "{b:02X}");
+                    output
+                }),
+            )
             .field("info_hash", &hex::encode(self.info_hash))
             .field("peer_id", &hex::encode(self.peer_id))
             .finish()
@@ -232,7 +311,10 @@ impl Handshake {
         let mut response_buf = [0; 68];
         let response_bytes_read = reader.read_exact(&mut response_buf).await?;
         if response_bytes_read != 68 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid handshake response length"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid handshake response length",
+            ));
         }
         let protocol_string_length: u8 = response_buf[0];
         let protocol_string: [u8; 19] = response_buf[1..20]
@@ -257,14 +339,20 @@ impl Handshake {
         Ok(handshake)
     }
 }
-pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStream) -> io::Result<Handshake> {
+pub async fn perform_peer_handshake(
+    torrent: Arc<Torrent>,
+    stream: &mut TcpStream,
+) -> io::Result<Handshake> {
     let info_hash: [u8; 20] = torrent.get_info_hash();
     let my_peer_id: [u8; 20] = b"00112233445566778899".to_owned();
     let handshake_request = Handshake::new(info_hash, my_peer_id);
     handshake_request.write_to(stream).await?;
     let handshake_response = Handshake::read_from(stream).await?;
     if handshake_response.info_hash != info_hash {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Info hash mismatch"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Info hash mismatch",
+        ));
     }
     Ok(handshake_response)
 }

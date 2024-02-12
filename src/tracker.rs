@@ -1,8 +1,8 @@
-use serde::{ Deserialize };
-use serde_with::{ Bytes, serde_as };
-use std::net::{ SocketAddr, Ipv4Addr };
-use std::sync::{ Arc };
 use crate::Torrent;
+use serde::Deserialize;
+use serde_with::{serde_as, Bytes};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 
 #[serde_as]
 #[derive(Deserialize, Debug)]
@@ -24,10 +24,14 @@ pub struct TrackerResponse {
 
 impl TrackerResponse {
     fn from_intermediate(intermediate: IntermediateTrackerResponse) -> Self {
-        let peers: Vec<SocketAddr> = intermediate.peers.chunks(6).map(|chunk| {
-            let arr: [u8; 6] = chunk.try_into().expect("Chunk must have length 6");
-            SocketAddr::from_bytes(&arr)
-        }).collect();
+        let peers: Vec<SocketAddr> = intermediate
+            .peers
+            .chunks(6)
+            .map(|chunk| {
+                let arr: [u8; 6] = chunk.try_into().expect("Chunk must have length 6");
+                SocketAddr::from_bytes(&arr)
+            })
+            .collect();
         TrackerResponse {
             // interval: intermediate.interval,
             peers,
@@ -58,7 +62,8 @@ pub fn get_tracker(torrent: Arc<Torrent>) -> TrackerResponse {
         .unwrap();
 
     let response_body = response.bytes().unwrap();
-    let intermediate_tracker_response: IntermediateTrackerResponse = serde_bencode::from_bytes(&response_body).unwrap();
+    let intermediate_tracker_response: IntermediateTrackerResponse =
+        serde_bencode::from_bytes(&response_body).unwrap();
     TrackerResponse::from_intermediate(intermediate_tracker_response)
 }
 

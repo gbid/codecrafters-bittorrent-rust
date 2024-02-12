@@ -1,11 +1,10 @@
-use clap::{ arg, Command, Arg, ArgAction };
-use std::{ fs, str::FromStr};
-use std::net::{ SocketAddr };
-use tokio::net::{ TcpStream };
+use bittorrent_starter_rust::{bencode, network, tracker, Torrent};
+use clap::{arg, Arg, ArgAction, Command};
 use std::io;
-use std::sync::{ Arc };
-use bittorrent_starter_rust::{ Torrent, bencode, tracker, network };
-
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::{fs, str::FromStr};
+use tokio::net::TcpStream;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -37,13 +36,15 @@ async fn main() -> io::Result<()> {
         .subcommand(
             Command::new("download_piece")
                 .about("Downloads a specific piece of a torrent")
-                .arg(Arg::new("OUTPUT")
-                    .short('o')
-                    .long("output")
-                    .action(ArgAction::Set)
-                    .value_name("OUTPUT")
-                    .help("Output file")
-                    .required(true))
+                .arg(
+                    Arg::new("OUTPUT")
+                        .short('o')
+                        .long("output")
+                        .action(ArgAction::Set)
+                        .value_name("OUTPUT")
+                        .help("Output file")
+                        .required(true),
+                )
                 .arg(arg!(<TORRENT_FILE> "The torrent file"))
                 .arg(arg!(<PIECE_INDEX> "The index of the piece to download")),
         )
@@ -51,13 +52,15 @@ async fn main() -> io::Result<()> {
             Command::new("download")
                 .about("Downloads the entire torrent")
                 // .arg(arg!(-o --output <OUTPUT> "Output file").required(true))
-                .arg(Arg::new("OUTPUT")
-                    .short('o')
-                    .long("output")
-                    .action(ArgAction::Set)
-                    .value_name("OUTPUT")
-                    .help("Output file")
-                    .required(true))
+                .arg(
+                    Arg::new("OUTPUT")
+                        .short('o')
+                        .long("output")
+                        .action(ArgAction::Set)
+                        .value_name("OUTPUT")
+                        .help("Output file")
+                        .required(true),
+                )
                 .arg(arg!(<TORRENT_FILE> "The torrent file")),
         )
         .get_matches();
@@ -65,17 +68,18 @@ async fn main() -> io::Result<()> {
     match matches.subcommand() {
         Some(("decode", sub_matches)) => {
             let encoded_value = sub_matches.get_one::<String>("ENCODED_VALUE").unwrap();
-            let (decoded_value, _encoded_tail) = bencode::decode_bencoded_value(encoded_value.as_bytes());
+            let (decoded_value, _encoded_tail) =
+                bencode::decode_bencoded_value(encoded_value.as_bytes());
             println!("{}", decoded_value);
             Ok(())
-        },
+        }
         Some(("info", sub_matches)) => {
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
             let content = fs::read(torrent_filename)?;
             let torrent = Torrent::from_bytes(&content);
             display_torrent_info(&torrent);
             Ok(())
-        },
+        }
         Some(("peers", sub_matches)) => {
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
             let content = fs::read(torrent_filename)?;
@@ -86,23 +90,27 @@ async fn main() -> io::Result<()> {
                 println!("{}", peer);
             }
             Ok(())
-        },
+        }
         Some(("handshake", sub_matches)) => {
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
             let peer_address = sub_matches.get_one::<String>("PEER").unwrap();
             perform_handshake(torrent_filename, peer_address).await
-        },
+        }
         Some(("download_piece", sub_matches)) => {
             let output_filename = sub_matches.get_one::<String>("OUTPUT").unwrap();
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
-            let piece_index = sub_matches.get_one::<String>("PIECE_INDEX").unwrap().parse::<u32>().unwrap();
+            let piece_index = sub_matches
+                .get_one::<String>("PIECE_INDEX")
+                .unwrap()
+                .parse::<u32>()
+                .unwrap();
             download_single_piece(torrent_filename, output_filename, piece_index).await
-        },
+        }
         Some(("download", sub_matches)) => {
             let output_filename = sub_matches.get_one::<String>("OUTPUT").unwrap();
             let torrent_filename = sub_matches.get_one::<String>("TORRENT_FILE").unwrap();
             download_torrent(torrent_filename, output_filename).await
-        },
+        }
         _ => unreachable!(),
     }
 }
@@ -119,7 +127,7 @@ fn display_torrent_info(torrent: &Torrent) {
     }
 }
 
-async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Result<()>{
+async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Result<()> {
     let content = fs::read(torrent_filename)?;
     let torrent: Torrent = serde_bencode::from_bytes(&content).unwrap();
     let peer = SocketAddr::from_str(peer_address).unwrap();
@@ -131,7 +139,11 @@ async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Re
 }
 
 const MAX_ATTEMPTS: usize = 20;
-async fn download_single_piece(torrent_filename: &str, output_filename: &str, piece_index: u32) -> io::Result<()> {
+async fn download_single_piece(
+    torrent_filename: &str,
+    output_filename: &str,
+    piece_index: u32,
+) -> io::Result<()> {
     let content = fs::read(torrent_filename)?;
     let torrent = Torrent::from_bytes(&content);
     let torrent_arc = Arc::new(torrent);
@@ -143,11 +155,13 @@ async fn download_single_piece(torrent_filename: &str, output_filename: &str, pi
         if let Ok(piece) = network::download_piece(piece_index, torrent_clone, &peer).await {
             fs::write(output_filename, piece)?;
             println!("Piece {} downloaded to {}.", piece_index, output_filename);
-            return Ok(())
+            return Ok(());
         }
     }
-    Err(io::Error::new(io::ErrorKind::TimedOut, "MAX_ATTEMPTS many downloads failed"))
-
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        "MAX_ATTEMPTS many downloads failed",
+    ))
 }
 
 async fn download_torrent(torrent_filename: &str, output_filename: &str) -> io::Result<()> {

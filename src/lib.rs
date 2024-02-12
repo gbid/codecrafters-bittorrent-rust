@@ -1,11 +1,11 @@
-use sha1::{ Sha1, Digest };
-use serde::{ Serialize, Deserialize };
-use serde_with::{ Bytes, serde_as };
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, Bytes};
+use sha1::{Digest, Sha1};
 
 pub mod bencode;
 pub mod network;
-pub mod tracker;
 mod peer_messages;
+pub mod tracker;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Torrent {
@@ -78,4 +78,4 @@ pub struct Info {
 }
 
 // 16kiB
-const BLOCK_SIZE: usize = 16*1024;
+const BLOCK_SIZE: usize = 16 * 1024;

@@ -1,5 +1,5 @@
 use std::io;
-use tokio::io::{ AsyncReadExt, AsyncWriteExt };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Debug)]
 pub enum PeerMessage {
@@ -18,7 +18,7 @@ impl PeerMessage {
     const ID_PIECE: u8 = 7;
     // TODO: read from &[u8] to get rid of networking
     // Can we make this generic with the Read trait?
-    pub async fn from_reader<R: AsyncReadExt + Unpin >(mut reader: R) -> io::Result<PeerMessage> {
+    pub async fn from_reader<R: AsyncReadExt + Unpin>(mut reader: R) -> io::Result<PeerMessage> {
         // read length prefix (4 bytes)
         let mut length_buf = [0u8; 4];
         reader.read_exact(&mut length_buf).await?;
@@ -35,11 +35,17 @@ impl PeerMessage {
             PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
             PeerMessage::ID_INTERESTED => Ok(PeerMessage::Interested),
             PeerMessage::ID_UNCHOKE => Ok(PeerMessage::Unchoke),
-            PeerMessage::ID_REQUEST => Ok(PeerMessage::Request(RequestPayload::from_bytes(&payload_buf)?)),
+            PeerMessage::ID_REQUEST => Ok(PeerMessage::Request(RequestPayload::from_bytes(
+                &payload_buf,
+            )?)),
             PeerMessage::ID_PIECE => Ok(PeerMessage::Piece(PiecePayload::from_bytes(payload_buf)?)),
-            _ => Err(io::Error::new(io::ErrorKind::InvalidData,
-                    format!("Unkown message type id: length: {}, id: {}, payload: {:?}", length, id, payload_buf)
-                    )),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Unkown message type id: length: {}, id: {}, payload: {:?}",
+                    length, id, payload_buf
+                ),
+            )),
         }
     }
 
@@ -48,28 +54,28 @@ impl PeerMessage {
         match self {
             PeerMessage::Bitfield(_payload_buf) => {
                 todo!()
-            },
+            }
             PeerMessage::Interested => {
                 let length: u32 = 1;
                 let id: u8 = PeerMessage::ID_INTERESTED;
                 buffer.extend_from_slice(&length.to_be_bytes());
                 buffer.push(id);
-            },
+            }
             PeerMessage::Unchoke => {
                 todo!()
-            },
+            }
             PeerMessage::Request(request_payload) => {
-                let length: u32 = 1 + 3*4;
+                let length: u32 = 1 + 3 * 4;
                 let id: u8 = PeerMessage::ID_REQUEST;
                 buffer.extend_from_slice(&length.to_be_bytes());
                 buffer.push(id);
                 buffer.extend_from_slice(&request_payload.index.to_be_bytes());
                 buffer.extend_from_slice(&request_payload.begin.to_be_bytes());
                 buffer.extend_from_slice(&request_payload.length.to_be_bytes());
-            },
+            }
             PeerMessage::Piece(_piece_payload) => {
                 todo!()
-            },
+            }
         }
         Ok(buffer)
     }
@@ -78,28 +84,28 @@ impl PeerMessage {
         match self {
             PeerMessage::Bitfield(_payload_buf) => {
                 todo!()
-            },
+            }
             PeerMessage::Interested => {
                 let length: u32 = 1;
                 let id: u8 = PeerMessage::ID_INTERESTED;
                 writer.write_u32(length).await?;
                 writer.write_u8(id).await?;
-            },
+            }
             PeerMessage::Unchoke => {
                 todo!()
-            },
+            }
             PeerMessage::Request(request_payload) => {
-                let length: u32 = 1 + 3*4;
+                let length: u32 = 1 + 3 * 4;
                 let id: u8 = PeerMessage::ID_REQUEST;
                 writer.write_u32(length).await?;
                 writer.write_u8(id).await?;
                 writer.write_u32(request_payload.index).await?;
                 writer.write_u32(request_payload.begin).await?;
                 writer.write_u32(request_payload.length).await?;
-            },
+            }
             PeerMessage::Piece(_piece_payload) => {
                 todo!()
-            },
+            }
         }
         Ok(())
     }
@@ -114,7 +120,10 @@ pub struct RequestPayload {
 impl RequestPayload {
     fn from_bytes(raw: &[u8]) -> io::Result<RequestPayload> {
         if raw.len() != 12 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Cannot parse payload as RequestPayload"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Cannot parse payload as RequestPayload",
+            ));
         }
         let index = u32::from_be_bytes(raw[0..4].try_into().unwrap());
         let begin = u32::from_be_bytes(raw[4..8].try_into().unwrap());
@@ -135,7 +144,10 @@ pub struct PiecePayload {
 impl PiecePayload {
     fn from_bytes(mut raw: Vec<u8>) -> io::Result<PiecePayload> {
         if raw.len() < 8 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Cannot parse payload as PiecePayload"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Cannot parse payload as PiecePayload",
+            ));
         }
         let index = u32::from_be_bytes(raw[0..4].try_into().unwrap());
         let begin = u32::from_be_bytes(raw[4..8].try_into().unwrap());
