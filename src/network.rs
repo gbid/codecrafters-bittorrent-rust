@@ -1,6 +1,7 @@
 use std::net::{ SocketAddr };
 use std::io;
 use std::collections::VecDeque;
+use std::fmt::Write;
 use tokio::net::{ TcpStream };
 
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
@@ -47,8 +48,7 @@ pub async fn download_piece(piece_index: u32, torrent: Arc<Torrent>, peer: &Sock
     }
     let piece: Vec<u8> = blocks
         .into_iter()
-        .map(|block| block.expect("All blocks must be successfully downloaded"))
-        .flatten()
+        .flat_map(|block| block.expect("All blocks must be successfully downloaded"))
         .collect();
     if torrent.is_piece_hash_correct(&piece, piece_index) {
         Ok(piece)
@@ -72,7 +72,7 @@ async fn send_request(
     Ok(())
 }
 
-async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<u32>, piece: &mut Vec<Option<Vec<u8>>>) -> io::Result<()> {
+async fn handle_response(stream: &mut TcpStream, active_requests: &mut VecDeque<u32>, piece: &mut [Option<Vec<u8>>]) -> io::Result<()> {
     let response_msg = PeerMessage::from_reader(stream).await?;
     match response_msg {
         PeerMessage::Piece(PiecePayload {
@@ -182,7 +182,7 @@ pub async fn download_pieces(torrent: Arc<Torrent>) -> io::Result<Vec<u8>> {
     }
 
     // Assemble the downloaded pieces into the final file content
-    Ok(pieces.into_iter().map(|piece| piece.unwrap()).flatten().collect())
+    Ok(pieces.into_iter().flat_map(|piece| piece.unwrap()).collect())
 }
 
 pub struct Handshake {
@@ -197,9 +197,12 @@ impl fmt::Debug for Handshake {
         f.debug_struct("Handshake")
             .field("protocol_string_length", &self.protocol_string_length)
             .field("protocol_string", &String::from_utf8_lossy(&self.protocol_string))
-            .field("reserved", &self.reserved.iter().map(|b| format!("{:02x}", b)).collect::<String>())
-            .field("info_hash", &hex::encode(&self.info_hash))
-            .field("peer_id", &hex::encode(&self.peer_id))
+            .field("reserved", &self.reserved.iter().fold(String::new(), |mut output, b| {
+                let _ = write!(output, "{b:02X}");
+                output
+            }))
+            .field("info_hash", &hex::encode(self.info_hash))
+            .field("peer_id", &hex::encode(self.peer_id))
             .finish()
     }
 }
@@ -260,7 +263,7 @@ pub async fn perform_peer_handshake(torrent: Arc<Torrent>, stream: &mut TcpStrea
     let handshake_request = Handshake::new(info_hash, my_peer_id);
     handshake_request.write_to(stream).await?;
     let handshake_response = Handshake::read_from(stream).await?;
-    if &handshake_response.info_hash != &info_hash {
+    if handshake_response.info_hash != info_hash {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Info hash mismatch"));
     }
     Ok(handshake_response)

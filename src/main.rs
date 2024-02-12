@@ -3,7 +3,6 @@ use std::{ fs, str::FromStr};
 use std::net::{ SocketAddr };
 use tokio::net::{ TcpStream };
 use std::io;
-use hex;
 use std::sync::{ Arc };
 use bittorrent_starter_rust::{ Torrent, bencode, tracker, network };
 
@@ -67,7 +66,7 @@ async fn main() -> io::Result<()> {
         Some(("decode", sub_matches)) => {
             let encoded_value = sub_matches.get_one::<String>("ENCODED_VALUE").unwrap();
             let (decoded_value, _encoded_tail) = bencode::decode_bencoded_value(encoded_value.as_bytes());
-            println!("{}", decoded_value.to_string());
+            println!("{}", decoded_value);
             Ok(())
         },
         Some(("info", sub_matches)) => {
@@ -112,7 +111,7 @@ fn display_torrent_info(torrent: &Torrent) {
     println!("Tracker URL: {}", torrent.announce);
     println!("Length: {}", torrent.info.length);
     let info_hash = torrent.get_info_hash();
-    println!("Info Hash: {}", hex::encode(&info_hash));
+    println!("Info Hash: {}", hex::encode(info_hash));
     println!("Piece Length: {}", torrent.info.piece_length);
     println!("Piece Hashes:");
     for piece in torrent.info.pieces.chunks(20) {
@@ -127,7 +126,7 @@ async fn perform_handshake(torrent_filename: &str, peer_address: &str) -> io::Re
     let mut stream = TcpStream::connect(&peer).await?;
     let torrent_arc = Arc::new(torrent);
     let response_handshake = network::perform_peer_handshake(torrent_arc, &mut stream).await?;
-    println!("Peer ID: {}", hex::encode(&response_handshake.peer_id));
+    println!("Peer ID: {}", hex::encode(response_handshake.peer_id));
     Ok(())
 }
 
@@ -156,7 +155,7 @@ async fn download_torrent(torrent_filename: &str, output_filename: &str) -> io::
     let torrent = Torrent::from_bytes(&content);
     let torrent_arc = Arc::new(torrent);
     let downloaded_pieces: Vec<u8> = network::download_pieces(torrent_arc).await?;
-    fs::write(output_filename, &downloaded_pieces)?;
+    fs::write(output_filename, downloaded_pieces)?;
     println!("Downloaded {} to {}", torrent_filename, output_filename);
     Ok(())
 }

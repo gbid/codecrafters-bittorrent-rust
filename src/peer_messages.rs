@@ -31,7 +31,7 @@ impl PeerMessage {
         let payload_length: usize = <u32 as TryInto<usize>>::try_into(length).unwrap() - 1;
         let mut payload_buf: Vec<u8> = vec![0; payload_length];
         reader.read_exact(&mut payload_buf).await?;
-        let msg = match id {
+        match id {
             PeerMessage::ID_BITFIELD => Ok(PeerMessage::Bitfield(payload_buf)),
             PeerMessage::ID_INTERESTED => Ok(PeerMessage::Interested),
             PeerMessage::ID_UNCHOKE => Ok(PeerMessage::Unchoke),
@@ -40,8 +40,7 @@ impl PeerMessage {
             _ => Err(io::Error::new(io::ErrorKind::InvalidData,
                     format!("Unkown message type id: length: {}, id: {}, payload: {:?}", length, id, payload_buf)
                     )),
-        };
-        msg
+        }
     }
 
     pub fn _to_bytes(&self) -> io::Result<Vec<u8>> {

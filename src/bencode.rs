@@ -34,7 +34,7 @@ pub fn decode_bencoded_value(encoded_value: &[u8]) -> (serde_json::Value, &[u8])
             let colon_index = encoded_value.iter().position(|&x| x == b':').unwrap();
             let (head, tail) = encoded_value.split_at(colon_index);
             let tail = &tail[1..];
-            let value_length = str::from_utf8(&head).unwrap().parse::<usize>().unwrap();
+            let value_length = str::from_utf8(head).unwrap().parse::<usize>().unwrap();
             let value = String::from_utf8_lossy(&tail[.. value_length]);
             (value.into(), &tail[value_length ..])
         },

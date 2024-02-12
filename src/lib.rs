@@ -1,4 +1,3 @@
-use serde_bencode;
 use sha1::{ Sha1, Digest };
 use serde::{ Serialize, Deserialize };
 use serde_with::{ Bytes, serde_as };
@@ -63,7 +62,7 @@ impl Torrent {
             hasher.update(bytes);
             hasher.finalize().into()
         };
-        self.info.pieces[a..b] == hash(&piece)
+        self.info.pieces[a..b] == hash(piece)
     }
 }
 

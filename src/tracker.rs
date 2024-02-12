@@ -53,14 +53,13 @@ pub fn get_tracker(torrent: Arc<Torrent>) -> TrackerResponse {
 
     let full_url = format!("{}{}", torrent.announce, query_string);
     let response = reqwest::blocking::Client::new()
-        .get(&full_url)
+        .get(full_url)
         .send()
         .unwrap();
 
     let response_body = response.bytes().unwrap();
     let intermediate_tracker_response: IntermediateTrackerResponse = serde_bencode::from_bytes(&response_body).unwrap();
-    let tracker_response = TrackerResponse::from_intermediate(intermediate_tracker_response);
-    tracker_response
+    TrackerResponse::from_intermediate(intermediate_tracker_response)
 }
 
 trait SocketAddrExt {
